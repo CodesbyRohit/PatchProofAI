@@ -29,7 +29,7 @@ jobs:
       # Turn a missing Docker sandbox into a failure instead of a skip.
       PATCHPROOF_REQUIRE_DOCKER: "1"
       # Expected number of real-Docker tests in tests/test_docker_sandbox.py.
-      MIN_DOCKER_TESTS: "6"
+      MIN_DOCKER_TESTS: "9"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,7 +45,7 @@ jobs:
         run: uv sync --locked
 
       - name: Ruff
-        run: uv run --locked ruff check src tests
+        run: uv run --locked ruff check src tests scripts
 
       - name: Build the execution sandbox image
         run: |
@@ -54,6 +54,11 @@ jobs:
 
       - name: Pytest (full suite, including the Docker sandbox)
         run: uv run --locked pytest -q -rs --junitxml="$RUNNER_TEMP/pytest-results.xml"
+
+      # Disables each security control in turn (CSRF, ownership, OAuth state, patch approval, archive host,
+      # atomic quota, token refresh lock, token encryption) and requires its guarding test to fail.
+      - name: Security mutation checks
+        run: uv run --locked python scripts/mutation_check.py
 
       - name: Require Docker sandbox coverage
         run: |

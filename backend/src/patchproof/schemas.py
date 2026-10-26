@@ -27,11 +27,27 @@ class ProjectSummary(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class RepoSource(BaseModel):
+    """The exact repository revision a project was taken from."""
+
+    provider: Literal["github"] = "github"
+    repo_id: int
+    full_name: str  # owner/name
+    private: bool
+    ref: str | None = None  # branch the user picked; the run itself is pinned to `sha`
+    sha: str
+    html_url: str
+    skipped_count: int = 0
+    skipped: list[str] = Field(default_factory=list)  # first entries, with the reason
+
+
 class Project(BaseModel):
     id: str
     name: str
-    origin: Literal["example", "upload", "inline"]
+    origin: Literal["example", "upload", "inline", "github"]
     trusted: bool = False  # True only for code bundled with PatchProof
+    owner: str = "local"  # principal that created it; bundled examples are shared
+    source: RepoSource | None = None
     files: list[ProjectFile]
     summary: ProjectSummary
 
@@ -228,6 +244,25 @@ class RunRequest(BaseModel):
     issue: str | None = Field(default=None, max_length=4_000)
 
 
+class GitHubRunRequest(BaseModel):
+    """Verify a fix against one exact commit of a GitHub repository."""
+
+    repository: str = Field(pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
+    ref: str | None = Field(default=None, max_length=255)
+    sha: str = Field(pattern=r"^[0-9a-f]{40}$")  # the commit the user saw; the run is pinned to it
+    patch_source: Literal[PatchSource.ai, PatchSource.user] = PatchSource.ai
+    user_patch: str | None = Field(default=None, max_length=64_000)
+    issue: str | None = Field(default=None, max_length=4_000)
+    # AI mode sends selected files of the repository to the model provider; private code needs explicit consent.
+    allow_model_upload: bool = False
+
+
+class PullRequestCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=20_000)
+    patch_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")  # hash of the diff shown to the user
+
+
 class RunEvent(BaseModel):
     at: float
     step: str
@@ -246,13 +281,28 @@ class Attempt(BaseModel):
     error: str | None = None
 
 
+class PullRequestRecord(BaseModel):
+    state: Literal["creating", "created", "failed"]
+    branch: str
+    base: str
+    patch_sha256: str  # the diff the user approved; a different patch is never pushed
+    url: str | None = None
+    number: int | None = None
+    error: str | None = None
+    created_at: float
+
+
 class Run(BaseModel):
     id: str
     created_at: float
     finished_at: float | None = None
     state: Literal["queued", "running", "finished", "error"]
+    owner: str = "local"
     project_id: str
     project_name: str
+    source: RepoSource | None = None
+    request: RunRequest | None = None  # kept so a queued run can resume after a restart
+    pull_request: PullRequestRecord | None = None
     patch_source: PatchSource
     issue: str | None = None
     sandbox: str | None = None
@@ -272,6 +322,7 @@ class RunSummary(BaseModel):
     created_at: float
     state: str
     project_name: str
+    repository: str | None = None
     patch_source: PatchSource
     verdict: VerdictStatus | None = None
     headline: str | None = None

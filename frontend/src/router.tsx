@@ -25,11 +25,17 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, () => window.location.pathname);
 }
 
-export type Route = { name: "workspace" } | { name: "history" } | { name: "run"; id: string } | { name: "missing" };
+export type Route =
+  | { name: "workspace" }
+  | { name: "history" }
+  | { name: "github" }
+  | { name: "run"; id: string }
+  | { name: "missing" };
 
 export function matchRoute(path: string): Route {
   if (path === "/" || path === "") return { name: "workspace" };
   if (path === "/history") return { name: "history" };
+  if (path === "/github") return { name: "github" };
   const m = /^\/runs\/([A-Za-z0-9_-]{1,64})\/?$/.exec(path);
   if (m?.[1]) return { name: "run", id: m[1] };
   return { name: "missing" };
