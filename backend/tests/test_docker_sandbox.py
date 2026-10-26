@@ -1,6 +1,11 @@
-"""Hostile-code tests against the real Docker sandbox. Skipped when Docker is unavailable."""
+"""Hostile-code tests against the real Docker sandbox.
+
+Skipped when Docker is unavailable, unless PATCHPROOF_REQUIRE_DOCKER=1 (set in CI), which turns a
+missing sandbox into a failure so isolation coverage can never silently disappear.
+"""
 
 import dataclasses
+import os
 import time
 
 import pytest
@@ -18,6 +23,8 @@ pytestmark = pytest.mark.docker
 def docker_settings(settings):
     ok, detail = docker_status(settings.sandbox_image, ttl_s=0)
     if not ok:
+        if os.environ.get("PATCHPROOF_REQUIRE_DOCKER") == "1":
+            pytest.fail(f"PATCHPROOF_REQUIRE_DOCKER=1 but the Docker sandbox is unavailable: {detail}")
         pytest.skip(detail)
     return dataclasses.replace(settings, sandbox_backend="docker", verification_runs=1)
 

@@ -71,7 +71,7 @@ You can also run any example in AI mode (`patch_source: "ai"`) to have BharatCod
 
 ## Quick start
 
-**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+ with npm (for the web interface), and Docker (Docker Desktop on Windows/macOS). Without Docker, only bundled examples with their scripted patches can run. Uploads and AI-generated patches are blocked.
+**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22.12+ or 24 with npm (for the web interface), and Docker (Docker Desktop on Windows/macOS). Without Docker, only bundled examples with their scripted patches can run. Uploads and AI-generated patches are blocked.
 
 ```bash
 git clone https://github.com/CodesbyRohit/PatchProofAI.git
@@ -208,6 +208,20 @@ npm run build
 
 The frontend tests render real run records captured from the API (`frontend/src/test/fixtures/`, provenance in its README): the four verdicts, a missing API key, a simulated HTTP 402, polling, upload rejection, unreachable backend, timeouts and malformed responses.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes to `main` and `feat/**`, on pull requests, and on manual dispatch. It has a read-only token, actions pinned to commit SHAs, and no deploy step.
+
+- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 5) actually ran and passed.
+- **Frontend:** `npm ci`, then lint, type-check, tests and the production build.
+
+CI never needs a BharatCode key. Model behaviour, including the HTTP 402 `plan_required` path, is covered by scripted fake clients and captured fixtures, so no provider calls are made. To reproduce the Docker requirement locally:
+
+```bash
+cd backend
+PATCHPROOF_REQUIRE_DOCKER=1 uv run pytest -q -rs     # PowerShell: $env:PATCHPROOF_REQUIRE_DOCKER=1; uv run pytest -q -rs
+```
+
 The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (regressions, flaky tests, environment errors, timeouts, collection errors), result parsing, model-client failure modes (auth, plan, rate limit, outage, timeout, malformed and truncated output), secret redaction, the end-to-end engine loop, the HTTP API, and hostile code inside the real Docker sandbox.
 
 ## Project status
@@ -221,7 +235,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | Bundled demo examples | 3 projects, 6 scripted patches, verdicts as listed above |
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
 | Benchmark (20+ cases) | Planned |
-| CI workflow | Planned |
+| CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
 | Hosted deployment | None. The sandbox needs a Docker host, so PatchProof currently runs locally. |
 
 ## Limitations
