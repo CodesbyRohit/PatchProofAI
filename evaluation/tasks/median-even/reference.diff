@@ -1,0 +1,11 @@
+--- a/src/stats.py
++++ b/src/stats.py
+@@ -3,4 +3,7 @@
+     if not values:
+         raise ValueError("median of an empty sequence")
+     ordered = sorted(values)
+-    return ordered[len(ordered) // 2]
++    mid = len(ordered) // 2
++    if len(ordered) % 2:
++        return ordered[mid]
++    return (ordered[mid - 1] + ordered[mid]) / 2

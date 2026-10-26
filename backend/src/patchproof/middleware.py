@@ -1,15 +1,20 @@
-"""ASGI middleware that runs before any request parsing: body-size limit and access tokens."""
+"""ASGI middleware that runs before any request parsing: body-size limit and authentication."""
 
 from __future__ import annotations
+
+import hmac
+from collections.abc import Callable
 
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .access import bearer_token, token_allowed
+from .auth import Principal
 
-# Probes for load balancers and uptime checks; they reveal no data and need no token.
-PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready"})
+# Probes for load balancers, and the endpoints that tell a browser how to sign in. They reveal no data.
+PUBLIC_API_PATHS = frozenset({"/api/health", "/api/ready", "/api/auth/me", "/api/auth/github/start",
+                              "/api/auth/github/callback", "/api/events"})
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def is_api_path(path: str) -> bool:
@@ -84,22 +89,35 @@ class BodyLimit:
         await response(scope, receive, send)
 
 
-class RequireToken:
-    """Require `Authorization: Bearer <token>` on every API path except the public probes."""
+class Authenticate:
+    """Attach the request's principal and refuse protected API paths without one.
 
-    def __init__(self, app: ASGIApp, token_hashes: tuple[str, ...]):
+    Public paths: the health/readiness probes and the sign-in endpoints (which say how to authenticate).
+    Requests authenticated by the session cookie must carry the session's CSRF token when they change state;
+    bearer-token requests cannot be forged cross-site, so they need none.
+    """
+
+    def __init__(self, app: ASGIApp, resolve: Callable[[Scope], Principal | None], sign_in_hint: str):
         self.app = app
-        self.token_hashes = token_hashes
+        self.resolve = resolve
+        self.sign_in_hint = sign_in_hint
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (scope["type"] == "http" and self.token_hashes and is_api_path(scope["path"])
-                and scope["path"] not in PUBLIC_API_PATHS and scope["method"] != "OPTIONS"):
-            token = bearer_token(Headers(scope=scope).get("authorization"))
-            if not token_allowed(token, self.token_hashes):
-                detail = ("The access token is not valid." if token
-                          else "This PatchProof instance requires an access token.")
-                response = JSONResponse({"detail": detail}, status_code=401,
-                                        headers={"WWW-Authenticate": 'Bearer realm="PatchProof"'})
-                await response(scope, receive, send)
-                return
+        if scope["type"] != "http" or not is_api_path(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+        principal = self.resolve(scope)
+        scope.setdefault("state", {})["principal"] = principal
+        public = scope["path"] in PUBLIC_API_PATHS or scope["method"] == "OPTIONS"
+        if principal is None and not public:
+            headers = Headers(scope=scope)
+            detail = "The access token is not valid." if headers.get("authorization") else self.sign_in_hint
+            await JSONResponse({"detail": detail}, status_code=401,
+                               headers={"WWW-Authenticate": 'Bearer realm="PatchProof"'})(scope, receive, send)
+            return
+        if (principal is not None and principal.kind == "user" and scope["method"] not in SAFE_METHODS
+                and not hmac.compare_digest(Headers(scope=scope).get("x-csrf-token", ""), principal.csrf or "")):
+            await JSONResponse({"detail": "Missing or invalid CSRF token. Reload the page and try again."},
+                               status_code=403)(scope, receive, send)
+            return
         await self.app(scope, receive, send)

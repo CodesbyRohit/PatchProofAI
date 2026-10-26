@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import re
@@ -57,8 +58,32 @@ def _float(name: str, default: float) -> float:
         return default
 
 
+def _optional_float(name: str) -> float | None:
+    try:
+        value = os.environ.get(name, "").strip()
+        return float(value) if value else None
+    except ValueError:
+        return None
+
+
 def _list(name: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in os.environ.get(name, "").split(",") if item.strip())
+
+
+def _valid_fernet_key(key: str) -> bool:
+    try:
+        return len(base64.urlsafe_b64decode(key.encode("ascii"))) == 32
+    except (ValueError, UnicodeEncodeError):
+        return False
+
+
+def _url_problem(url: str, *, https: bool) -> str | None:
+    parts = urlsplit(url)
+    if parts.scheme not in (("https",) if https else ("https", "http")) or not parts.hostname:
+        return f"must be an absolute {'https' if https else 'http(s)'} URL: {url!r}"
+    if parts.username or parts.password or parts.query or parts.fragment:
+        return f"must not contain credentials, a query or a fragment: {url!r}"
+    return None
 
 
 def origin_problem(origin: str) -> str | None:
@@ -102,10 +127,32 @@ class Settings:
     data_dir_set: bool = False
     access_token_hashes: tuple[str, ...] = ()
     cors_origins: tuple[str, ...] = ()
+    # GitHub App sign-in and repository access (all optional; see deploy/README.md).
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_app_slug: str | None = None
+    github_callback_url: str | None = None
+    app_url: str | None = None  # where the browser returns after signing in; same origin when unset
+    secret_key: str | None = None  # Fernet key: encrypts stored GitHub tokens
+    github_allowed_logins: tuple[str, ...] = ()
+    github_pr_writes: bool = False
+    cookie_secure: bool = False
+    session_ttl_s: int = 7 * 24 * 3600
+    repo_max_archive_bytes: int = 25 * 1024 * 1024
+    # Usage and product analytics (see usage.py). Prices are the operator's real costs; unset means unmeasured.
+    free_monthly_runs: int = 30  # 0: no monthly limit on the free plan
+    run_retention_days: int = 90  # finished runs (logs, diffs) older than this are deleted; 0 keeps them
+    analytics: bool = True
+    cost_per_sandbox_hour: float | None = None
+    cost_per_1k_tokens: float | None = None
 
     @property
     def model_configured(self) -> bool:
         return bool(self.api_key)
+
+    @property
+    def github_configured(self) -> bool:
+        return bool(self.github_client_id and self.github_client_secret)
 
     @property
     def data_dir(self) -> Path:
@@ -127,16 +174,39 @@ class Settings:
         if bad_hashes:
             found.append("PATCHPROOF_ACCESS_TOKEN_HASHES must hold SHA-256 hex digests "
                          "(create them with `python -m patchproof.access new`).")
+        found += self._github_problems()
         if self.hosted:
-            if not self.access_token_hashes:
-                found.append("PATCHPROOF_HOSTED=1 requires PATCHPROOF_ACCESS_TOKEN_HASHES: "
-                             "a hosted API must not be open to anyone.")
+            if not self.access_token_hashes and not (self.github_configured and self.github_allowed_logins):
+                found.append("PATCHPROOF_HOSTED=1 requires access control: PATCHPROOF_ACCESS_TOKEN_HASHES, or GitHub "
+                             "sign-in limited by PATCHPROOF_GITHUB_ALLOWED_LOGINS. A hosted API must not be open "
+                             "to anyone.")
             if self.sandbox_backend != "docker":
                 found.append("PATCHPROOF_HOSTED=1 requires PATCHPROOF_SANDBOX=docker.")
             if self.allow_unsandboxed:
                 found.append("PATCHPROOF_HOSTED=1 forbids PATCHPROOF_ALLOW_UNSANDBOXED=1.")
             if not self.data_dir_set:
                 found.append("PATCHPROOF_HOSTED=1 requires PATCHPROOF_DATA_DIR on persistent storage.")
+        return found
+
+    def _github_problems(self) -> list[str]:
+        found = []
+        parts = {"GITHUB_APP_CLIENT_ID": self.github_client_id, "GITHUB_APP_CLIENT_SECRET": self.github_client_secret,
+                 "PATCHPROOF_GITHUB_CALLBACK_URL": self.github_callback_url}
+        if any(parts.values()) and not all(parts.values()):
+            missing = ", ".join(k for k, v in parts.items() if not v)
+            found.append(f"GitHub sign-in is partly configured; also set {missing}.")
+        if self.github_pr_writes and not self.github_configured:
+            found.append("PATCHPROOF_GITHUB_PR_WRITES=1 requires GitHub sign-in to be configured.")
+        if not self.github_configured:
+            return found
+        if not self.secret_key or not _valid_fernet_key(self.secret_key):
+            found.append("GitHub sign-in requires PATCHPROOF_SECRET_KEY: a Fernet key that encrypts stored GitHub "
+                         "tokens (create one with `python -m patchproof.accounts new-key`).")
+        for name, url in (("PATCHPROOF_GITHUB_CALLBACK_URL", self.github_callback_url), ("PATCHPROOF_APP_URL", self.app_url)):
+            if url and (problem := _url_problem(url, https=self.hosted)):
+                found.append(f"{name} {problem}")
+        if self.hosted and not self.cookie_secure:
+            found.append("PATCHPROOF_HOSTED=1 with GitHub sign-in requires PATCHPROOF_COOKIE_SECURE=1 (HTTPS only).")
         return found
 
 
@@ -167,5 +237,20 @@ def load_settings() -> Settings:
         hosted=_bool("PATCHPROOF_HOSTED", False),
         data_dir_set=bool(data_dir_env),
         access_token_hashes=tuple(h.lower() for h in _list("PATCHPROOF_ACCESS_TOKEN_HASHES")),
+        github_client_id=os.environ.get("GITHUB_APP_CLIENT_ID") or None,
+        github_client_secret=os.environ.get("GITHUB_APP_CLIENT_SECRET") or None,
+        github_app_slug=os.environ.get("GITHUB_APP_SLUG") or None,
+        github_callback_url=os.environ.get("PATCHPROOF_GITHUB_CALLBACK_URL") or None,
+        app_url=(os.environ.get("PATCHPROOF_APP_URL") or "").rstrip("/") or None,
+        secret_key=os.environ.get("PATCHPROOF_SECRET_KEY") or None,
+        github_allowed_logins=tuple(login.lower() for login in _list("PATCHPROOF_GITHUB_ALLOWED_LOGINS")),
+        github_pr_writes=_bool("PATCHPROOF_GITHUB_PR_WRITES", False),
+        cookie_secure=_bool("PATCHPROOF_COOKIE_SECURE", _bool("PATCHPROOF_HOSTED", False)),
+        repo_max_archive_bytes=max(1, _int("PATCHPROOF_REPO_MAX_ARCHIVE_MB", 25)) * 1024 * 1024,
+        free_monthly_runs=max(0, _int("PATCHPROOF_FREE_MONTHLY_RUNS", 30)),
+        run_retention_days=max(0, _int("PATCHPROOF_RUN_RETENTION_DAYS", 90)),
+        analytics=_bool("PATCHPROOF_ANALYTICS", True),
+        cost_per_sandbox_hour=_optional_float("PATCHPROOF_COST_PER_SANDBOX_HOUR"),
+        cost_per_1k_tokens=_optional_float("PATCHPROOF_COST_PER_1K_MODEL_TOKENS"),
         cors_origins=tuple(o.lower() for o in _list("PATCHPROOF_CORS_ORIGINS")),
     )

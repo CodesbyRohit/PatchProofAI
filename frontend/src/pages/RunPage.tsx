@@ -5,6 +5,7 @@ import { AttemptEvidence } from "../components/AttemptEvidence";
 import { ModelErrorNotice } from "../components/ModelErrorNotice";
 import { ErrorNotice, Loading, Notice } from "../components/Notice";
 import { Pipeline } from "../components/Pipeline";
+import { PullRequestPanel, RepoSourceBlock } from "../components/RepoPanels";
 import { SourceBadge } from "../components/SourceBadge";
 import { TestLedger } from "../components/TestLedger";
 import { VerdictStamp } from "../components/VerdictStamp";
@@ -246,10 +247,12 @@ export function RunPage({ id }: { id: string }) {
         </div>
 
         <aside className="run__aside">
+          <RepoSourceBlock run={run} />
           <section className="aside-block">
             <h3 className="aside-title">Pipeline</h3>
             <Pipeline run={run} />
           </section>
+          <PullRequestPanel run={run} />
           <Downloads run={run} />
           <ContinueDemo run={run} />
         </aside>

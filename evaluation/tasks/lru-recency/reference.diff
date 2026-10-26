@@ -1,0 +1,15 @@
+--- a/src/lru.py
++++ b/src/lru.py
+@@ -8,7 +8,11 @@
+         self._data = {}
+ 
+     def get(self, key, default=None):
+-        return self._data.get(key, default)
++        if key not in self._data:
++            return default
++        value = self._data.pop(key)
++        self._data[key] = value
++        return value
+ 
+     def put(self, key, value):
+         if key in self._data:

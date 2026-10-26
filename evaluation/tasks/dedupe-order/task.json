@@ -1,0 +1,3 @@
+{"id": "dedupe-order", "title": "dedupe() loses the original order", "kind": "synthetic",
+ "issue": "dedupe([3, 1, 3, 2]) should keep first occurrences in order: [3, 1, 2].",
+ "license": "MIT (written for this repository)"}

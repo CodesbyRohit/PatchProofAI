@@ -67,7 +67,7 @@ def test_invalid_configuration_is_rejected_at_startup(settings, changes, expecte
 
 
 @pytest.mark.parametrize(("changes", "expected"), [
-    ({"access_token_hashes": ()}, "requires PATCHPROOF_ACCESS_TOKEN_HASHES"),
+    ({"access_token_hashes": ()}, "requires access control"),
     ({"sandbox_backend": "auto"}, "requires PATCHPROOF_SANDBOX=docker"),
     ({"sandbox_backend": "local"}, "requires PATCHPROOF_SANDBOX=docker"),
     ({"allow_unsandboxed": True}, "forbids PATCHPROOF_ALLOW_UNSANDBOXED=1"),
@@ -159,7 +159,9 @@ def test_cors_preflight_allows_only_the_configured_origin(secured):
     assert ok.status_code == 200
     assert ok.headers["access-control-allow-origin"] == ORIGIN
     assert "authorization" in ok.headers["access-control-allow-headers"].lower()
-    assert "access-control-allow-credentials" not in ok.headers
+    # Credentials are allowed (a same-site frontend sends the session cookie) only for this exact origin.
+    assert ok.headers["access-control-allow-credentials"] == "true"
+    assert ok.headers["access-control-allow-origin"] != "*"
     other = secured.options("/api/runs", headers={"Origin": "https://evil.example", **pre})
     assert other.status_code == 400
     assert "access-control-allow-origin" not in other.headers

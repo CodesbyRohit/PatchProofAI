@@ -1,9 +1,12 @@
+import { GitHubPage } from "./pages/GitHub";
 import { History } from "./pages/History";
 import { RunPage } from "./pages/RunPage";
 import { Workspace } from "./pages/Workspace";
+import { SessionProvider, useSession } from "./lib/session";
 import { Link, matchRoute, usePath } from "./router";
 
 function Masthead({ active }: { active: string }) {
+  const { me } = useSession();
   return (
     <header className="masthead">
       <Link to="/" className="wordmark" aria-label="PatchProof AI, workspace">
@@ -15,6 +18,10 @@ function Masthead({ active }: { active: string }) {
         <ul className="nav">
           <li><Link to="/" aria-current={active === "workspace" ? "page" : undefined}>Workspace</Link></li>
           <li><Link to="/history" aria-current={active === "history" ? "page" : undefined}>History</Link></li>
+          {me?.github.configured && (
+            <li><Link to="/github" aria-current={active === "github" ? "page" : undefined}>GitHub</Link></li>
+          )}
+          {me?.kind === "user" && <li className="nav__user mono small">@{me.login}</li>}
         </ul>
       </nav>
     </header>
@@ -22,6 +29,14 @@ function Masthead({ active }: { active: string }) {
 }
 
 export function App() {
+  return (
+    <SessionProvider>
+      <Shell />
+    </SessionProvider>
+  );
+}
+
+function Shell() {
   const route = matchRoute(usePath());
   return (
     <>
@@ -30,6 +45,7 @@ export function App() {
       <main id="main">
         {route.name === "workspace" && <Workspace />}
         {route.name === "history" && <History />}
+        {route.name === "github" && <GitHubPage />}
         {route.name === "run" && <RunPage key={route.id} id={route.id} />}
         {route.name === "missing" && (
           <div className="page">

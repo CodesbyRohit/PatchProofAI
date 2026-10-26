@@ -1,6 +1,22 @@
 import { joinApi, parseApiBase } from "./base";
 import { getToken } from "./token";
-import type { Example, Project, Run, RunRequest, RunSummary, Status } from "./types";
+import type {
+  Branch,
+  CommitInfo,
+  Example,
+  GitHubRunRequest,
+  Installation,
+  Me,
+  Project,
+  PullRequestPreview,
+  PullRequestRecord,
+  RepoPage,
+  RepoSummary,
+  Run,
+  RunRequest,
+  RunSummary,
+  Status,
+} from "./types";
 
 export type ApiErrorKind = "network" | "timeout" | "http" | "auth" | "malformed";
 
@@ -73,16 +89,30 @@ function parseJson(text: string): unknown {
 }
 
 /** Fetch an API path with the access token and a timeout. Resolves only for a 2xx response. */
+/** The signed-in session's CSRF token (from /api/auth/me); sent on every request that changes state. */
+let csrfToken: string | null = null;
+export function setCsrfToken(token: string | null) {
+  csrfToken = token;
+}
+
 async function send(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const token = getToken();
+  const writes = (init.method ?? "GET").toUpperCase() !== "GET";
   let res: Response;
   try {
     res = await fetch(joinApi(API_BASE, path), {
       ...init,
       signal: controller.signal,
-      headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
+      // The session cookie must travel with requests to a separately hosted (same-site) API too.
+      credentials: API_BASE ? "include" : "same-origin",
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(writes && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        ...init.headers,
+      },
     });
   } catch {
     if (controller.signal.aborted) {
@@ -147,6 +177,24 @@ function isStatus(x: unknown): x is Status {
   return isObj(x) && isObj(x.model) && isObj(x.sandbox) && isObj(x.limits);
 }
 
+function isMe(x: unknown): x is Me {
+  return isObj(x) && typeof x.authenticated === "boolean" && isObj(x.github);
+}
+
+const isOk = (x: unknown): x is { ok: boolean } => isObj(x) && x.ok === true;
+const isInstallations = (x: unknown): x is Installation[] =>
+  Array.isArray(x) && x.every((i) => isObj(i) && typeof i.id === "number" && typeof i.account === "string");
+const isRepo = (x: unknown): x is RepoSummary =>
+  isObj(x) && typeof x.full_name === "string" && typeof x.private === "boolean" && typeof x.access === "string";
+const isRepoPage = (x: unknown): x is RepoPage =>
+  isObj(x) && Array.isArray(x.repositories) && x.repositories.every(isRepo) && typeof x.has_more === "boolean";
+const isBranches = (x: unknown): x is { branches: Branch[]; has_more: boolean } =>
+  isObj(x) && Array.isArray(x.branches) && x.branches.every((b) => isObj(b) && typeof b.name === "string");
+const isCommit = (x: unknown): x is CommitInfo => isObj(x) && typeof x.sha === "string" && /^[0-9a-f]{40}$/.test(x.sha);
+const isPullRequest = (x: unknown): x is PullRequestRecord => isObj(x) && typeof x.state === "string" && typeof x.branch === "string";
+const isPreview = (x: unknown): x is PullRequestPreview =>
+  isObj(x) && typeof x.diff === "string" && typeof x.patch_sha256 === "string" && Array.isArray(x.changed_files);
+
 function isProject(x: unknown): x is Project {
   return isObj(x) && typeof x.id === "string" && Array.isArray(x.files) && isObj(x.summary);
 }
@@ -190,6 +238,40 @@ export const api = {
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
+};
+
+const json = (method: string, body: unknown, headers: Record<string, string> = {}): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json", ...headers },
+  body: JSON.stringify(body),
+});
+const q = encodeURIComponent;
+
+export const auth = {
+  me: () => request("/api/auth/me", { method: "GET" }, isMe),
+  /** Full-page navigation: the browser goes to GitHub and comes back to /github. */
+  signInUrl: () => joinApi(API_BASE, "/api/auth/github/start"),
+  signOut: () => request("/api/auth/logout", { method: "POST" }, isOk),
+  disconnect: () => request("/api/auth/github/disconnect", { method: "POST" }, isOk),
+  /** Deletes every run, project and usage record stored for this user, and revokes the GitHub authorization. */
+  deleteAccount: () => request("/api/account", { method: "DELETE" }, (x): x is { deleted: Record<string, number> } => isObj(x) && isObj(x.deleted)),
+};
+
+export const gh = {
+  installations: () => request("/api/github/installations", { method: "GET" }, isInstallations),
+  repos: (installationId: number, page: number) =>
+    request(`/api/github/installations/${installationId}/repos?page=${page}`, { method: "GET" }, isRepoPage),
+  repo: (fullName: string) => request(`/api/github/repo?full_name=${q(fullName)}`, { method: "GET" }, isRepo),
+  branches: (fullName: string) =>
+    request(`/api/github/branches?full_name=${q(fullName)}`, { method: "GET" }, isBranches),
+  commit: (fullName: string, ref: string) =>
+    request(`/api/github/commit?full_name=${q(fullName)}&ref=${q(ref)}`, { method: "GET" }, isCommit),
+  createRun: (body: GitHubRunRequest, idempotencyKey: string) =>
+    request("/api/github/runs", json("POST", body, { "Idempotency-Key": idempotencyKey }), isRun, 60_000),
+  pullRequestPreview: (runId: string) =>
+    request(`/api/runs/${q(runId)}/pull-request`, { method: "GET" }, isPreview),
+  createPullRequest: (runId: string, body: { title: string; body: string; patch_sha256: string }) =>
+    request(`/api/runs/${q(runId)}/pull-request`, json("POST", body), isPullRequest, 120_000),
 };
 
 export const downloads = {
