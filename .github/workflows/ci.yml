@@ -45,7 +45,7 @@ jobs:
         run: uv sync --locked
 
       - name: Ruff
-        run: uv run --locked ruff check src tests
+        run: uv run --locked ruff check src tests scripts
 
       - name: Build the execution sandbox image
         run: |

@@ -28,7 +28,8 @@ fake.repos["octo/public-lib"] = Repo(id=12, full_name="octo/public-lib", private
 fake.installed = {1: ["alice/private-app"], 2: []}
 settings = dataclasses.replace(
     load_settings(), sandbox_backend="docker", db_path=data_dir / "patchproof.sqlite3", api_key=None,
-    github_client_id="Iv1.e2e", github_client_secret="e2e-secret", secret_key=Fernet.generate_key().decode(),
+    github_client_id="Iv1.e2e", github_client_secret="e2e-secret",  # noqa: S106 - fake test credential, never real
+    secret_key=Fernet.generate_key().decode(),
     github_callback_url=f"http://127.0.0.1:{port}/api/auth/github/callback", github_pr_writes=True, cookie_secure=False)
 app = create_app(settings, github=GitHubClient("Iv1.e2e", "e2e-secret", transport=fake.transport()))
 uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
