@@ -118,7 +118,7 @@ cd frontend
 npm run dev                            # http://localhost:5173, proxies /api to http://127.0.0.1:8000
 ```
 
-Set `PATCHPROOF_BACKEND_URL` to proxy to a different API address.
+Set `PATCHPROOF_BACKEND_URL` to proxy to a different API address. This variable is read only by the Vite dev server; it has no effect on a production build or on Vercel (see [Deployment](#deployment)).
 
 ### Demo walkthrough
 
@@ -206,6 +206,97 @@ CI runs the full benchmark on every push and publishes the per-case table in the
 
 **Bring your own patch:** set `"patch_source": "user"` and pass a unified diff in `user_patch` to verify a fix from any tool (Copilot, ChatGPT, a colleague) against the same rules.
 
+## Deployment
+
+PatchProof has two parts with different hosting needs:
+
+| Part | Where it can run | Why |
+|---|---|---|
+| Web interface (`frontend/`) | Vercel, or any static host | It is a static Vite build. It calls only same-origin `/api/...` paths and holds no secrets. |
+| API, run store and sandbox (`backend/`) | A Linux host with Docker Engine | Every untrusted test run is a `docker run` against the host's Docker daemon. Runs are long-lived background jobs in the server process, and history is a SQLite file on local disk. Vercel Functions have no Docker daemon and no persistent local disk, so the backend **cannot** run on Vercel. |
+
+On Vercel, `/api/*` is proxied to the backend with a rewrite, so the browser still talks to a single origin. No CORS configuration or API code changes are involved.
+
+```
+browser ──► Vercel (static frontend) ──/api/* rewrite──► backend host: uvicorn + Docker sandbox
+```
+
+### Frontend on Vercel
+
+> **A frontend-only deployment is a UI preview, not a working verification service.** Until a backend is connected (below), the site can show its pages but cannot list examples, run or verify anything, or generate patches.
+
+`frontend/vercel.json` holds the build settings, the client-side routing fallback, and the API caching opt-out. Create the Vercel project from this repository with these settings:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `frontend` (required: `vercel.json` and `package.json` live there) |
+| Framework Preset | Vite |
+| Install Command | `npm ci` |
+| Build Command | `npm run build` (`tsc --noEmit && vite build`) |
+| Output Directory | `dist` |
+| Node.js Version | 22.x or 24.x (`engines` in `package.json`) |
+| Environment variables | None. Do not add `VITE_*` variables: anything with that prefix is compiled into public JavaScript. |
+
+Routing in `vercel.json`:
+
+- Files that exist in `dist` (hashed `/assets/*`, `favicon.svg`) are served directly, with Vercel's default caching. A long-lived `Cache-Control` on `/assets/*` is deliberately not set: Vercel would attach it to 404s for missing assets too, and browsers would keep those 404s.
+- Any other path except `/api` and `/assets/*` is rewritten to `index.html`, so reloading `/history` or `/runs/<id>` works.
+- `/api` and `/api/*` are **never** rewritten to `index.html`. Until the backend rewrite below is added, they return Vercel's 404, and the workspace says "/api is not routed to a PatchProof backend" instead of rendering broken data.
+- `x-vercel-enable-rewrite-caching: 0` tells Vercel's CDN not to cache proxied API responses, which would freeze run polling. This is Vercel's documented behaviour. Confirm it on the live site once the backend rewrite exists: polling a running run must show its state change.
+
+After deploying, check the routing on the live site. Use the production domain: preview URLs are usually behind Vercel Authentication, which makes `curl` see a 401.
+
+```bash
+for p in /history /runs/example /favicon.svg /assets/missing.js /api/status; do
+  curl -s -o /dev/null -w "%{http_code} %{content_type}  $p\n" "https://<your-vercel-domain>$p"; done
+```
+
+Expected: 200 with `text/html` for the first two, 200 for the favicon, and 404 for the last two. With the backend connected, `/api/status` returns 200 with JSON instead.
+
+### Connecting the backend
+
+When the backend has a public HTTPS address, add this rule as the **first** entry of `rewrites` in `frontend/vercel.json`, replacing the host with yours, then redeploy:
+
+```json
+{ "source": "/api/:path*", "destination": "https://<your-backend-host>/api/:path*" }
+```
+
+Vercel rewrites cannot read environment variables, so the address lives in this file. It is not a secret. Then verify through the Vercel domain, not the backend host:
+
+```bash
+curl https://<your-vercel-domain>/api/health   # {"ok":true,"version":"0.1.0"}: the proxy reaches the backend
+curl https://<your-vercel-domain>/api/status   # check sandbox.docker_available is true and model.configured matches your key
+```
+
+### Backend host requirements
+
+- Linux with Docker Engine. Build the sandbox image there with `./scripts/build-sandbox.sh`.
+- Run **one** uvicorn worker (`uv run uvicorn patchproof.app:create_app --factory --host 127.0.0.1 --port 8000`) behind a TLS reverse proxy. The run queue and rate limits live in the process, and each start marks unfinished runs as interrupted, so extra workers would cancel each other's runs.
+- The user that runs the backend must be able to use Docker, which is root-equivalent on that host. Use a dedicated VM, not a shared machine.
+- Backend environment variables (set on the backend host, never in Vercel or `vercel.json`):
+
+| Variable | Value for a hosted backend |
+|---|---|
+| `BHARATCODE_API_KEY` | Secret. Needed for AI patch generation only. |
+| `PATCHPROOF_SANDBOX` | `docker`, so a missing Docker daemon blocks every run instead of falling back to bundled examples only |
+| `PATCHPROOF_ALLOW_UNSANDBOXED` | Unset or `0`. Never enable this on a reachable server. |
+| `PATCHPROOF_DATA_DIR` | A persistent directory for the SQLite run history |
+
+### What works where
+
+| Feature | Vercel frontend alone | With the backend connected |
+|---|---|---|
+| Pages, navigation, deep links | Yes | Yes |
+| Status, examples, history, runs, uploads, downloads | No: the workspace shows that `/api` is not routed | Yes |
+| Sandboxed verification of uploads and AI patches | No | Yes, only if Docker is available on the backend host. Otherwise these runs are blocked, never run on the host. |
+| AI patch generation | No | Needs a BharatCode plan with API access. Live generation has not been observed yet; see BharatCode integration. |
+
+### Known deployment limitations
+
+- **The API has no authentication.** Anyone who can open the site, or reach the backend host directly, can upload projects, start sandboxed runs, and use your BharatCode quota, within the rate limit (12 runs per minute by default) and the bounded queue. Restrict access before sharing the URL. Vercel documents a way to make the origin accept only traffic proxied by Vercel: an origin-secret request header, which needs `routes` in `vercel.json` plus a check in the backend. PatchProof does not implement this yet.
+- **Rate limiting behind a proxy.** The backend keys its rate limit on the connecting address. Behind Vercel and a reverse proxy, that is the proxy, so visitors share one budget. That is stricter, not looser. Trusting `X-Forwarded-For` instead is only safe once the backend accepts traffic from Vercel alone.
+- **Not yet observed live:** a 4 MB upload through Vercel's proxy, and Vercel's request limits for proxied requests. Test an upload near the 4 MB cap once the backend is connected. All API calls are short: runs are started with one request and then polled.
+
 ## Security model
 
 Uploaded code and model-generated patches are treated as hostile.
@@ -233,7 +324,7 @@ There has been no professional security audit.
 
 ```bash
 cd backend
-uv run pytest -q          # 152 tests (Docker tests are skipped if Docker is unavailable)
+uv run pytest -q          # 153 tests (Docker tests are skipped if Docker is unavailable)
 uv run ruff check src tests
 
 cd ../frontend
@@ -273,7 +364,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
 | Benchmark | 29 scripted cases through the real engine and Docker sandbox; 29 of 29 in two complete runs (CI and local), run on every push |
 | CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
-| Hosted deployment | None. The sandbox needs a Docker host, so PatchProof currently runs locally. |
+| Hosted deployment | Not deployed. The web interface is configured for Vercel (`frontend/vercel.json`); the API and sandbox need a separate Docker host, which is not yet set up. See [Deployment](#deployment). |
 
 ## Limitations
 

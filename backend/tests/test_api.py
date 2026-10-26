@@ -93,6 +93,21 @@ def test_scripted_patches_only_for_examples_and_unknown_ids(api):
     assert api.get("/api/runs/run_missing").status_code == 404
 
 
+def test_spa_fallback_never_swallows_api_paths(settings, tmp_path, monkeypatch):
+    dist = tmp_path / "repo" / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>shell</title>", encoding="utf-8")
+    monkeypatch.setattr("patchproof.app.REPO_ROOT", tmp_path / "repo")
+    engine = Engine(settings, None, docker_check=lambda: (False, "off"))
+    with TestClient(create_app(settings, engine=engine)) as c:
+        assert "shell" in c.get("/runs/run_abc").text
+        for path in ("/api", "/api/", "/api/nope", "/api/runs/run_abc/unknown"):
+            r = c.get(path)
+            assert r.status_code == 404, path
+            assert r.headers["content-type"].startswith("application/json"), path
+        assert c.get("/api/health").json()["ok"] is True
+
+
 def test_rate_limit(settings):
     import dataclasses
     s = dataclasses.replace(settings, runs_per_minute=1)
