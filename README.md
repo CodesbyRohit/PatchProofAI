@@ -164,12 +164,29 @@ cd backend
 uv run python -m patchproof.benchmark     # Docker sandbox required; writes benchmark/results/
 ```
 
-**Measured so far (2026-10-26, Docker 29.9.2, 2 baseline + 2 patched runs per case).** Expected outcomes were written from the verdict rules below before the first run. The first full runs matched 27 of 29 cases. Correct fixes were verified 8 of 8, prohibited edits blocked 5 of 5, and invalid patches, incomplete fixes and the collection break rejected 5 of 5. The two mismatches were investigated rather than tuned away:
+**Measured result: 29 of 29 cases matched in two complete runs of commit `9dfd926`** (2 baseline + 2 patched runs per case, Docker sandbox):
+
+| Run | Environment | Result | Benchmark time |
+|---|---|---|---|
+| [GitHub Actions 40282328735](https://github.com/CodesbyRohit/PatchProofAI/actions/runs/40282328735) | Ubuntu 24.04 runner | 29 of 29 | 117 s |
+| Local, 2026-10-26 | Windows 11, Docker Desktop 29.9.2 | 29 of 29 | 292 s |
+
+| Measure | Result (both runs) |
+|---|---|
+| Correct fixes verified | 8 of 8 |
+| Plausible regressing patches rejected, with the exact regression count | 5 of 5 |
+| Fixes leaving a target failing, invalid patches, and the collection break rejected | 5 of 5 |
+| Prohibited edits blocked | 5 of 5 |
+| Missing dependency, no reproducible failure, skipped target, and flaky cases kept INCONCLUSIVE | 5 of 5 |
+| Memory-exhausting patch: run actually killed (exit 137) and reported INCONCLUSIVE | 1 of 1 |
+| Patches verified that should not have been | 0 |
+
+Expected outcomes were written from the verdict rules below before the first run. The first full runs, before the fixes described next, matched 27 of 29 cases. The two mismatches were investigated rather than tuned away:
 
 - **`fl-flaky-bystander`:** a correct fix next to an unrelated flaky test was VERIFIED, contradicting the documented policy. **The engine was fixed:** a flaky baseline test now makes the run INCONCLUSIVE (failure evidence still takes precedence), with regression tests in `backend/tests/test_verdict.py`.
 - **`rt-digits-infinite-loop`:** a patch that loops forever while growing a list is killed by the sandbox's 512 MB memory limit before any per-test result exists. Per the policy below, that is INCONCLUSIVE, not FAILED, so **the expectation was corrected** and the case now also requires the kill to actually happen. A CPU-only hang (`rt-power-of-two-hang`) is caught by the per-test timeout and is FAILED with 2 regressions.
 
-A complete post-fix run of all 29 cases has not yet finished locally; CI runs the full benchmark on every push and publishes the per-case table in the job summary and as the `benchmark-results` artifact.
+CI runs the full benchmark on every push and publishes the per-case table in the job summary and as the `benchmark-results` artifact. These results measure the verifier on scripted patches only; they say nothing about the quality of model-generated fixes, and no live BharatCode run has been observed yet.
 
 ## API
 
@@ -254,7 +271,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | BharatCode client | Implemented and tested with mocks; live auth and catalog confirmed; live generation blocked by account plan (HTTP 402) |
 | Bundled demo examples | 3 projects, 6 scripted patches, verdicts as listed above |
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
-| Benchmark | 29 scripted cases through the real engine and Docker sandbox, run in CI; both findings from the first runs resolved (see Benchmark) |
+| Benchmark | 29 scripted cases through the real engine and Docker sandbox; 29 of 29 in two complete runs (CI and local), run on every push |
 | CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
 | Hosted deployment | None. The sandbox needs a Docker host, so PatchProof currently runs locally. |
 
