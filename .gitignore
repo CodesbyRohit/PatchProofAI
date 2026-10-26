@@ -1,0 +1,30 @@
+# Secrets: never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# PatchProof local data (run history database)
+backend/.data/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+playwright-report/
+test-results/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

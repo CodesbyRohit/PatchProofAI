@@ -1,0 +1,49 @@
+{
+  "id": "pagination-off-by-one",
+  "title": "Pagination drops the last page",
+  "scenario": "Successful fix vs. regression trap",
+  "description": "A catalogue API cannot show the final, partially filled page. Compare a plausible one-line fix with a minimal correct fix: only one of them survives the regression suite.",
+  "issue": "Customers report that the last items in a category never show up. With 11 products and 5 per page, the API says there are 2 pages and page 3 returns 'out of range'.",
+  "recommended_patch": "minimal-fix",
+  "patches": [
+    {
+      "id": "plausible-plus-one",
+      "label": "Plausible fix: add one page",
+      "description": "The kind of quick fix an assistant often suggests: always add one page. It makes the reported tests pass.",
+      "expected_verdict": "FAILED_VERIFICATION",
+      "edits": [
+        {
+          "file": "pagination.py",
+          "search": "    return total_items // per_page\n",
+          "replace": "    return total_items // per_page + 1\n"
+        }
+      ]
+    },
+    {
+      "id": "minimal-fix",
+      "label": "Minimal fix: ceiling division",
+      "description": "Round up only when there is a partial page.",
+      "expected_verdict": "VERIFIED_FOR_TESTED_CASES",
+      "edits": [
+        {
+          "file": "pagination.py",
+          "search": "    return total_items // per_page\n",
+          "replace": "    return (total_items + per_page - 1) // per_page\n"
+        }
+      ]
+    },
+    {
+      "id": "edit-the-test",
+      "label": "Unsafe: change the test instead",
+      "description": "Makes the failure disappear by editing the test's expectation. Tests are evidence, so this is blocked.",
+      "expected_verdict": "BLOCKED_BY_SAFETY_POLICY",
+      "edits": [
+        {
+          "file": "tests/test_pagination.py",
+          "search": "    assert page_count(11, 5) == 3\n",
+          "replace": "    assert page_count(11, 5) == 2\n"
+        }
+      ]
+    }
+  ]
+}

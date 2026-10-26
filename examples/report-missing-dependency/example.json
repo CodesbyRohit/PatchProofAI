@@ -1,0 +1,23 @@
+{
+  "id": "report-missing-dependency",
+  "title": "Report helpers with a missing dependency",
+  "scenario": "Honest uncertainty",
+  "description": "A real bug (average of an empty list crashes) sits next to a module whose dependency, PyYAML, is not installed in the sandbox. The fix works for what can be tested, but PatchProof will not call it verified while part of the suite cannot run.",
+  "issue": "The weekly report crashes with ZeroDivisionError when a team has no entries for the week.",
+  "recommended_patch": "guard-empty",
+  "patches": [
+    {
+      "id": "guard-empty",
+      "label": "Fix: return 0.0 for an empty sequence",
+      "description": "Correct fix for the reproducible defect. The config-loader tests still cannot run because PyYAML is missing.",
+      "expected_verdict": "INCONCLUSIVE",
+      "edits": [
+        {
+          "file": "report_utils.py",
+          "search": "    return sum(values) / len(values)\n",
+          "replace": "    if not values:\n        return 0.0\n    return sum(values) / len(values)\n"
+        }
+      ]
+    }
+  ]
+}

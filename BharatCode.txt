@@ -1,0 +1,7 @@
+PatchProof AI
+
+PatchProof AI is an AI-powered debugging and code-verification tool built using the BharatCode model API. It diagnoses reproducible software bugs, proposes minimal code patches, and runs tests to evaluate whether the changes fix the reported issue without breaking existing tests.
+
+The project emphasizes evidence-based debugging, reproducible verification, transparent test results, and safe execution practices.
+
+GitHub: https://github.com/CodesbyRohit/PatchProofAI
