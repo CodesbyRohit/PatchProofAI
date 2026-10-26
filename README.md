@@ -71,7 +71,7 @@ You can also run any example in AI mode (`patch_source: "ai"`) to have BharatCod
 
 ## Quick start
 
-**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), and Docker (Docker Desktop on Windows/macOS). Without Docker, only bundled examples with their scripted patches can run. Uploads and AI-generated patches are blocked.
+**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 20+ with npm (for the web interface), and Docker (Docker Desktop on Windows/macOS). Without Docker, only bundled examples with their scripted patches can run. Uploads and AI-generated patches are blocked.
 
 ```bash
 git clone https://github.com/CodesbyRohit/PatchProofAI.git
@@ -83,11 +83,48 @@ cd PatchProofAI
 # 2. Configure the BharatCode key (optional; needed for AI mode only)
 cp .env.example backend/.env           # then set BHARATCODE_API_KEY in backend/.env
 
-# 3. Install and start the API server
+# 3. Build the web interface (the API server serves frontend/dist when it exists)
+cd frontend
+npm ci
+npm run build
+cd ..
+
+# 4. Install and start the API server
 cd backend
 uv sync
 uv run uvicorn patchproof.app:create_app --factory --port 8000
 ```
+
+Open **http://localhost:8000**. The workspace shows the sandbox and model status, the bundled demo examples, and the project upload.
+
+### Web interface
+
+The frontend (`frontend/`, React + TypeScript + Vite) talks only to the PatchProof API. The BharatCode key never reaches the browser: there are no `VITE_*` secrets, and model calls happen only on the server.
+
+- **Workspace:** backend status (Docker sandbox, model configuration), bundled demo examples with their scripted patches, and `.zip` upload. After an upload you can ask BharatCode for a patch or paste your own unified diff.
+- **Run page:** a stamped verdict with the backend's reasons; a test ledger showing each test's outcome in both baseline runs and both patched runs (regressions first; expand a row for the real failure message); the diagnosis, policy findings and exact diff; the pipeline built from the run's recorded events; raw test output; and downloads of `patch.diff`, `report.md` and `report.json`. Runs in progress are polled until the backend reports them finished.
+- **History:** every run, with links back to its evidence.
+- **Demo mode:** scripted patches are labelled as maintainer-written demo data on every screen, never as model output. The test runs and verdicts they produce are real.
+- **Model failures:** an HTTP 402 from BharatCode (plan without API generation) is shown as an access issue, not a code failure, along with the recorded provider message and request ID.
+
+For frontend development with hot reload, run the API server on port 8000 and, in a second terminal:
+
+```bash
+cd frontend
+npm run dev                            # http://localhost:5173, proxies /api to http://127.0.0.1:8000
+```
+
+Set `PATCHPROOF_BACKEND_URL` to proxy to a different API address.
+
+### Demo walkthrough
+
+1. Open the workspace and pick **Pagination drops the last page** (marked "Start here").
+2. Run **Plausible fix: add one page**. The ledger shows both target tests fixed and three previously passing tests broken: **FAILED_VERIFICATION**.
+3. From the run page, run **Minimal fix: ceiling division**: **VERIFIED_FOR_TESTED_CASES**, with every previously passing test still green.
+4. Run **Unsafe: change the test instead**: **BLOCKED_BY_SAFETY_POLICY**, with the policy finding shown and nothing executed.
+5. Download the diff and the Markdown report from the run page.
+
+### Using the API directly
 
 Check what's configured:
 
@@ -113,8 +150,6 @@ $run = Invoke-RestMethod -Method Post http://localhost:8000/api/runs -ContentTyp
   -Body '{"example_id":"pagination-off-by-one","patch_source":"scripted","scripted_patch_id":"plausible-plus-one"}'
 Invoke-RestMethod "http://localhost:8000/api/runs/$($run.id)"
 ```
-
-> The web interface is under development. Until it lands, the product is used through the HTTP API below.
 
 ## API
 
@@ -155,15 +190,23 @@ There has been no professional security audit.
 - **Error handling:** 401 (bad key), 402 (plan doesn't include API use), 403 (model not available to the account), and 400 fail fast with a clear message. 429 and 5xx get at most two retries with backoff (honouring `Retry-After`). Read timeouts are not retried, to avoid resending large prompts. `finish_reason: "length"` is detected as truncation, and malformed or empty responses are rejected. Unparseable output gets one bounded correction request. Every model call records latency, token usage, and `x-request-id`.
 - **Disclosure:** each AI run lists exactly which files were sent to the API.
 
-**Verification status (2026-10-26):** with the team's key, authentication and the live model catalog work (`GET /models` returned `qwen-3.8-27b` and `deepseek-v4.1-flash`). Generation requests return **HTTP 402**: the account's plan doesn't yet include API use (BharatCode requires Lite/Pro, or a verified student account). PatchProof reports this correctly as `INCONCLUSIVE` with the provider's message. **A complete live diagnosis-and-patch run has therefore not yet been observed.** The AI loop is covered by integration tests with a scripted client (`tests/test_engine.py`), which are not a substitute for a live run.
+**Verification status (2026-10-26):** with the team's key, authentication and the live model catalog work (`GET /models` returned `qwen-3.8-27b` and `deepseek-v4.1-flash`). Generation requests return **HTTP 402**: the account's plan doesn't yet include API use (BharatCode requires Lite/Pro, or a verified student account). PatchProof reports this correctly as `INCONCLUSIVE` with the provider's message, records `model_error_kind: "plan_required"` on the run, and the web interface explains it as an access issue rather than a code failure. **A complete live diagnosis-and-patch run has therefore not yet been observed.** The AI loop is covered by integration tests with a scripted client (`tests/test_engine.py`), which are not a substitute for a live run.
 
 ## Development
 
 ```bash
 cd backend
-uv run pytest -q          # 125 tests (Docker tests are skipped if Docker is unavailable)
+uv run pytest -q          # 127 tests (Docker tests are skipped if Docker is unavailable)
 uv run ruff check src tests
+
+cd ../frontend
+npm run lint
+npm run typecheck
+npm test                  # Vitest + Testing Library, using real captured API responses
+npm run build
 ```
+
+The frontend tests render real run records captured from the API (`frontend/src/test/fixtures/`, provenance in its README): the four verdicts, a missing API key, a simulated HTTP 402, polling, upload rejection, unreachable backend, timeouts and malformed responses.
 
 The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (regressions, flaky tests, environment errors, timeouts, collection errors), result parsing, model-client failure modes (auth, plan, rate limit, outage, timeout, malformed and truncated output), secret redaction, the end-to-end engine loop, the HTTP API, and hostile code inside the real Docker sandbox.
 
@@ -176,7 +219,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | HTTP API, run history, patch and report downloads | Implemented and tested |
 | BharatCode client | Implemented and tested with mocks; live auth and catalog confirmed; live generation blocked by account plan (HTTP 402) |
 | Bundled demo examples | 3 projects, 6 scripted patches, verdicts as listed above |
-| Web interface | In progress |
+| Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
 | Benchmark (20+ cases) | Planned |
 | CI workflow | Planned |
 | Hosted deployment | None. The sandbox needs a Docker host, so PatchProof currently runs locally. |
@@ -200,6 +243,11 @@ backend/
     sandbox/                Docker and local runners; image/ holds the Dockerfile and pytest reporter plugin
     app.py                  FastAPI application
   tests/                    backend test suite
+frontend/
+  src/api/                  typed API client and response types
+  src/components/           verdict stamp, test ledger, pipeline, diff, evidence
+  src/pages/                workspace, run, history
+  src/test/                 Vitest suites and captured API fixtures
 examples/                   bundled demo projects with scripted patches
 scripts/                    sandbox image build scripts
 ```
