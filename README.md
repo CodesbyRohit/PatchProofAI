@@ -164,7 +164,7 @@ cd backend
 uv run python -m patchproof.benchmark     # Docker sandbox required; writes benchmark/results/
 ```
 
-**Measured result: 29 of 29 cases matched in two complete runs of commit `9dfd926`** (2 baseline + 2 patched runs per case, Docker sandbox):
+**Measured result: 29 of 29 cases matched in two complete runs of the benchmark** (2 baseline + 2 patched runs per case, Docker sandbox):
 
 | Run | Environment | Result | Benchmark time |
 |---|---|---|---|
