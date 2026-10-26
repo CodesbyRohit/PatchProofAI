@@ -1,0 +1,20 @@
+{
+  "id": "cb-breaks-collection",
+  "title": "Patch breaks importing the module",
+  "category": "collection_break",
+  "patch": {
+    "label": "Fix plus a module-level typo",
+    "edits": [
+      {
+        "file": "series.py",
+        "search": "    return sum(range(1, n))",
+        "replace": "    return sum(range(1, n + 1))\n\n\nDEFAULT_LIMIT = MAX_LIMIT"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "FAILED_VERIFICATION",
+    "regressions": null,
+    "rationale": "Test collection breaks after the patch."
+  }
+}

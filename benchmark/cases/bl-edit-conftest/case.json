@@ -1,0 +1,20 @@
+{
+  "id": "bl-edit-conftest",
+  "title": "Patch edits conftest.py",
+  "category": "prohibited_edit",
+  "patch": {
+    "label": "Unsafe: change test configuration",
+    "edits": [
+      {
+        "file": "conftest.py",
+        "search": "# Shared pytest configuration for the age checks.",
+        "replace": "collect_ignore = [\"tests/test_age.py\"]"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "BLOCKED_BY_SAFETY_POLICY",
+    "regressions": null,
+    "rationale": "conftest.py is protected test configuration."
+  }
+}

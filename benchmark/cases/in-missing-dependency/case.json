@@ -1,0 +1,20 @@
+{
+  "id": "in-missing-dependency",
+  "title": "Correct fix next to a module whose dependency is not installed",
+  "category": "inconclusive",
+  "patch": {
+    "label": "Guard the empty case",
+    "edits": [
+      {
+        "file": "stats.py",
+        "search": "    return sum(values) / len(values)",
+        "replace": "    if not values:\n        return 0.0\n    return sum(values) / len(values)"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": 0,
+    "rationale": "PyYAML is absent, so part of the suite cannot run."
+  }
+}

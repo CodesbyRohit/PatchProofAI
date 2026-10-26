@@ -21,6 +21,7 @@ from ..schemas import (
     Diagnosis,
     FileEdit,
     ModelCallInfo,
+    PatchProvenance,
     PatchSource,
     Project,
     Run,
@@ -128,9 +129,11 @@ class Engine:
     # -- main entry --------------------------------------------------------------
 
     def execute(self, run: Run, project: Project, *, scripted: ScriptedPatch | None = None,
-                user_patch: str | None = None, notify: Callable[[Run], None] = lambda r: None) -> Run:
+                user_patch: str | None = None, notify: Callable[[Run], None] = lambda r: None,
+                scripted_provenance: PatchProvenance = "scripted_example") -> Run:
+        """``scripted_provenance`` labels where a scripted patch came from (bundled example or benchmark fixture)."""
         try:
-            self._execute(run, project, scripted, user_patch, notify)
+            self._execute(run, project, scripted, user_patch, notify, scripted_provenance)
         except Exception as exc:  # never leave a run hanging
             log.exception("run %s failed", run.id)
             run.state = "error"
@@ -140,7 +143,7 @@ class Engine:
         return run
 
     def _execute(self, run: Run, project: Project, scripted: ScriptedPatch | None, user_patch: str | None,
-                 notify: Callable[[Run], None]) -> None:
+                 notify: Callable[[Run], None], scripted_provenance: PatchProvenance = "scripted_example") -> None:
         files = {f.path: f.content for f in project.files}
         run.state = "running"
         self._event(run, "project", "completed",
@@ -185,9 +188,9 @@ class Engine:
         cand_runner, cand_detail = self.runner_for(trusted_candidate)
         if run.patch_source == PatchSource.scripted:
             assert scripted is not None
-            attempt = Attempt(number=1, diagnosis_source="scripted_example")
+            attempt = Attempt(number=1, diagnosis_source=scripted_provenance)
             candidate, new_files = prepare_candidate(
-                files, provenance="scripted_example", label=scripted.label,
+                files, provenance=scripted_provenance, label=scripted.label,
                 edits=scripted.edits or None, diff=scripted.diff)
         else:
             attempt = Attempt(number=1, diagnosis_source="user_supplied")

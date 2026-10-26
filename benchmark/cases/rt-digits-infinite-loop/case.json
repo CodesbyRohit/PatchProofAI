@@ -1,0 +1,21 @@
+{
+  "id": "rt-digits-infinite-loop",
+  "title": "Zero-digit fix that never terminates",
+  "category": "resource_limit",
+  "patch": {
+    "label": "Plausible: loop while n >= 0",
+    "edits": [
+      {
+        "file": "numbers_util.py",
+        "search": "while n > 0:",
+        "replace": "while n >= 0:"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": null,
+    "resource_limit_kill": true,
+    "rationale": "The patched loop never ends and grows a list, so the 512 MB memory limit kills the container (exit 137) before any per-test result exists. Policy (README, Verdicts): crashes and resource kills are gaps in the evidence, not failure evidence, so the verdict is INCONCLUSIVE. Originally expected FAILED on the wrong assumption of a CPU-only hang; changed after the owner's policy decision of 2026-10-26."
+  }
+}

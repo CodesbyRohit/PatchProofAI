@@ -1,0 +1,20 @@
+{
+  "id": "cf-leap-year-400-rule",
+  "title": "Leap-year rule misses the 400-year exception",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Add the 400-year rule",
+    "edits": [
+      {
+        "file": "calendar_rules.py",
+        "search": "return year % 4 == 0 and year % 100 != 0",
+        "replace": "return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "2000 fixed; 1900 still not a leap year."
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "rt-leap-year-every-fourth",
+  "title": "Leap-year fix that drops the century rule",
+  "category": "regression_trap",
+  "patch": {
+    "label": "Plausible: every fourth year",
+    "edits": [
+      {
+        "file": "calendar_rules.py",
+        "search": "return year % 4 == 0 and year % 100 != 0",
+        "replace": "return year % 4 == 0"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "FAILED_VERIFICATION",
+    "regressions": 1,
+    "rationale": "Fixes 2000 but makes 1900 a leap year."
+  }
+}

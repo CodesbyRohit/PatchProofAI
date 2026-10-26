@@ -28,3 +28,6 @@ test-results/
 Thumbs.db
 .idea/
 .vscode/
+
+# Benchmark output (produced locally or in CI)
+benchmark/results/

@@ -1,0 +1,20 @@
+{
+  "id": "cf-binary-search-bounds",
+  "title": "Binary search skips the last candidate",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Loop while lo <= hi",
+    "edits": [
+      {
+        "file": "search.py",
+        "search": "while lo < hi:",
+        "replace": "while lo <= hi:"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "Both boundary targets fixed; absent and empty cases unchanged."
+  }
+}

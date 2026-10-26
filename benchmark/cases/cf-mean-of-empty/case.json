@@ -1,0 +1,20 @@
+{
+  "id": "cf-mean-of-empty",
+  "title": "Mean of an empty sequence divides by zero",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Guard the empty case",
+    "edits": [
+      {
+        "file": "stats.py",
+        "search": "    return sum(values) / len(values)",
+        "replace": "    if not values:\n        return 0.0\n    return sum(values) / len(values)"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "ZeroDivisionError target fixed."
+  }
+}

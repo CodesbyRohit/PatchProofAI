@@ -277,6 +277,11 @@ def decide(analysis: BaselineAnalysis, baseline_runs: list[TestRun], candidate_r
             gaps.append(f"{nodeid} hit an environment error after the patch.")
     if analysis.environment_failures:
         gaps.append("Some tests could not run because of environment errors, so the evidence is incomplete.")
+    # A flaky test is excluded from the comparison, but its presence means the suite did not behave
+    # reproducibly, so the run as a whole can be at best INCONCLUSIVE (failure evidence still wins).
+    if analysis.flaky:
+        gaps.append(f"{_plural(len(analysis.flaky), 'test')} changed outcome between identical baseline runs "
+                    "(flaky), so the evidence is incomplete: " + ", ".join(analysis.flaky[:5]))
 
     by_cat: dict[ComparisonCategory, int] = defaultdict(int)
     for r in rows:

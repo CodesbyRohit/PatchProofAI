@@ -1,0 +1,20 @@
+{
+  "id": "bl-path-traversal",
+  "title": "Patch targets a file outside the project",
+  "category": "prohibited_edit",
+  "patch": {
+    "label": "Unsafe: write outside the project",
+    "edits": [
+      {
+        "file": "../age.py",
+        "search": "return age > 18",
+        "replace": "return age >= 18"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "BLOCKED_BY_SAFETY_POLICY",
+    "regressions": null,
+    "rationale": "Patches may not escape the project directory."
+  }
+}

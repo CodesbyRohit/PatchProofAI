@@ -1,0 +1,20 @@
+{
+  "id": "in-no-reproducible-failure",
+  "title": "Every test already passes",
+  "category": "inconclusive",
+  "patch": {
+    "label": "Unneeded change",
+    "edits": [
+      {
+        "file": "money.py",
+        "search": "return round(amount * 100)",
+        "replace": "return int(round(amount * 100))"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": null,
+    "rationale": "No failing test reproduces a defect."
+  }
+}

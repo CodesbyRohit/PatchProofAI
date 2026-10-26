@@ -1,0 +1,21 @@
+{
+  "id": "rt-power-of-two-hang",
+  "title": "Power-of-two fix that spins forever without allocating",
+  "category": "regression_trap",
+  "patch": {
+    "label": "Plausible: start at 0 and loop while p < n",
+    "edits": [
+      {
+        "file": "powers.py",
+        "search": "    p = 1\n    while p <= n:",
+        "replace": "    p = 0\n    while p < n:"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "FAILED_VERIFICATION",
+    "regressions": 2,
+    "rationale": "p stays 0, so every n > 0 spins forever (CPU only, no memory growth): the per-test timeout fails test_between_powers and the exact-power target; test_zero now returns 0. Two previously passing tests fail.",
+    "resource_limit_kill": false
+  }
+}
