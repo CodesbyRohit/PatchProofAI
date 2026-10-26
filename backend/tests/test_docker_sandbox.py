@@ -115,6 +115,58 @@ def test_private_github_repository_run_is_verified_in_the_sandbox(docker_setting
     assert run["source"]["sha"] == "a" * 40
 
 
+def _eval_response(file: str, search: str, replace: str) -> str:
+    import json
+
+    return json.dumps({
+        "summary": "even-length median is wrong", "root_cause": "uses the upper middle value",
+        "evidence": [{"file": file, "lines": "5", "observation": "index"}],
+        "edits": [{"file": file, "search": search, "replace": replace}],
+        "rationale": "average the two middle values", "confidence": "medium", "confidence_explanation": "matches tests"})
+
+
+MEDIAN_SEARCH = "    return ordered[len(ordered) // 2]\n"
+MEDIAN_WRONG = ("    if len(ordered) % 2:\n        return ordered[len(ordered) // 2]\n"
+                "    return sum(ordered[1:-1]) / (len(ordered) - 2)\n")  # passes the visible tests, fails a hidden one
+MEDIAN_RIGHT = ("    mid = len(ordered) // 2\n    if len(ordered) % 2:\n        return ordered[mid]\n"
+                "    return (ordered[mid - 1] + ordered[mid]) / 2\n")
+
+
+def test_evaluation_catches_a_false_verification_in_the_real_sandbox(docker_settings):
+    """PatchProof verifies a plausible patch that the independent scorer, with hidden tests, rejects."""
+    from conftest import FakeClient
+
+    from patchproof.evaluation import evaluate_task, load_tasks, prepare_task
+
+    task = next(t for t in load_tasks() if t.id == "median-even")
+    client = FakeClient([_eval_response("src/stats.py", MEDIAN_SEARCH, MEDIAN_WRONG)])
+    engine = Engine(docker_settings, client)
+    runner = engine.docker_runner
+    ctx = prepare_task(engine, task, runner)
+    result = evaluate_task(engine, task, ctx, runner, "patchproof", 1, client)
+    assert result.verdict == "VERIFIED_FOR_TESTED_CASES"  # the visible tests were all the engine could see
+    assert result.outcome == "incorrect" and result.hidden_failed >= 1
+    assert result.false_verification is True
+    assert result.model_calls == 1 and result.patch_sha256
+    sent = "\n".join(m["content"] for messages in client.requests for m in messages)
+    assert not any(path in sent for path in task.hidden)  # hidden tests never reached the model
+
+
+def test_the_baseline_arm_makes_one_attempt_and_executes_nothing_it_generated(docker_settings):
+    from conftest import FakeClient
+
+    from patchproof.evaluation import evaluate_task, load_tasks, prepare_task
+
+    task = next(t for t in load_tasks() if t.id == "median-even")
+    client = FakeClient([_eval_response("src/stats.py", MEDIAN_SEARCH, MEDIAN_RIGHT)])
+    engine = Engine(docker_settings, client)
+    runner = engine.docker_runner
+    ctx = prepare_task(engine, task, runner)
+    result = evaluate_task(engine, task, ctx, runner, "baseline", 1, client)
+    assert result.outcome == "correct" and result.verdict is None and result.false_verification is False
+    assert (result.attempts, result.model_calls, len(client.requests)) == (1, 1, 1)
+
+
 def project_with(tests: str, source: str = "def f():\n    return 1\n"):
     files = validate_files([("m.py", source.encode()), ("tests/test_hostile.py", tests.encode())])
     return build_project("hostile", "upload", files)

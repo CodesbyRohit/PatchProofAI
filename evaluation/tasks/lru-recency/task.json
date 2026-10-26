@@ -1,0 +1,3 @@
+{"id": "lru-recency", "title": "LRUCache evicts a recently read key", "kind": "synthetic",
+ "issue": "After reading key 'a' it should count as recently used, but the cache still evicts it first.",
+ "license": "MIT (written for this repository)"}

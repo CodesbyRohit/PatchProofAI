@@ -45,6 +45,14 @@ MUTANTS = [
     ("token encryption at rest", "src/patchproof/accounts.py",
      "return self._fernet.encrypt(value.encode()).decode()", "return value",
      "tests/test_github.py::test_sign_in_binds_the_github_identity_and_encrypts_tokens"),
+    ("evaluation: hidden tests used for scoring", "src/patchproof/evaluation.py",
+     "suite = {**patched, **task.hidden}  # hidden tests enter only here, after the patch is applied",
+     "suite = dict(patched)",
+     "tests/test_evaluation.py::test_a_patch_that_passes_the_visible_tests_but_not_the_hidden_ones_is_incorrect"),
+    ("evaluation: leak guard", "src/patchproof/evaluation.py",
+     "        if leaks:\n            raise EvaluationError(",
+     "        if False:\n            raise EvaluationError(",
+     "tests/test_evaluation.py::test_the_leak_guard_stops_the_request_before_it_reaches_the_model"),
 ]
 
 

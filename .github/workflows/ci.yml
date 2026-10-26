@@ -29,7 +29,7 @@ jobs:
       # Turn a missing Docker sandbox into a failure instead of a skip.
       PATCHPROOF_REQUIRE_DOCKER: "1"
       # Expected number of real-Docker tests in tests/test_docker_sandbox.py.
-      MIN_DOCKER_TESTS: "7"
+      MIN_DOCKER_TESTS: "9"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -1,0 +1,3 @@
+{"id": "median-even", "title": "median() of an even-length list", "kind": "synthetic",
+ "issue": "median([1, 2, 3, 4]) returns 3 but should be 2.5.",
+ "license": "MIT (written for this repository)"}
