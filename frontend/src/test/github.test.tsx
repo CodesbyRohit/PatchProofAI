@@ -107,6 +107,25 @@ describe("GitHub page", () => {
     expect(body).toMatchObject({ repository: "octo/public-lib", patch_source: "user", user_patch: "--- a/x", allow_model_upload: false });
   });
 
+  it("deletes the account's data only after a second, explicit confirmation", async () => {
+    const { calls } = mockFetch({
+      "GET /api/auth/me": () => json(fx.me(signedIn)),
+      "GET /api/github/installations": () => json([]),
+      "DELETE /api/account": () => json({ deleted: { runs: 2, projects: 2, usage: 2, events: 1 } }),
+    });
+    const user = userEvent.setup();
+    openGitHub();
+    await user.click(await screen.findByRole("button", { name: "Delete my data" }));
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(screen.getByText(/permanently deletes all your runs/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Delete my data" }));
+    await user.click(screen.getByRole("button", { name: "Yes, delete everything" }));
+    const del = calls.find((c) => c.method === "DELETE");
+    expect(header(del?.init, "X-CSRF-Token")).toBe("csrf-123");
+  });
+
   it("signs out with the CSRF token", async () => {
     const { calls } = mockFetch({
       "GET /api/auth/me": () => json(fx.me(signedIn)),

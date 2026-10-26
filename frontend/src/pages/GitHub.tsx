@@ -72,6 +72,7 @@ function RepoWorkspace({ me }: { me: Me }) {
   const { reload } = useSession();
   const [selected, setSelected] = useState<RepoSummary | null>(null);
   const [leaving, setLeaving] = useState<ApiError | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function signOut(disconnect: boolean) {
     try {
@@ -79,6 +80,15 @@ function RepoWorkspace({ me }: { me: Me }) {
       reload();
     } catch (e) {
       setLeaving(e instanceof ApiError ? e : new ApiError("malformed", "Could not sign out."));
+    }
+  }
+
+  async function deleteEverything() {
+    try {
+      await auth.deleteAccount();
+      reload();
+    } catch (e) {
+      setLeaving(e instanceof ApiError ? e : new ApiError("malformed", "Could not delete your data."));
     }
   }
 
@@ -93,6 +103,18 @@ function RepoWorkspace({ me }: { me: Me }) {
           </button>
         </div>
         {leaving && <ErrorNotice error={leaving} />}
+        <div className="account__delete">
+          {!confirmDelete ? (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirmDelete(true)}>Delete my data</button>
+          ) : (
+            <p className="small" role="alert">
+              This permanently deletes all your runs, logs, diffs and usage records on this PatchProof instance and
+              revokes its GitHub access. It does not touch your repositories or any pull request already opened.{" "}
+              <button type="button" className="btn btn--primary btn--sm" onClick={() => void deleteEverything()}>Yes, delete everything</button>{" "}
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </p>
+          )}
+        </div>
       </section>
       <div className="github__grid">
         <RepoPicker me={me} selected={selected} onSelect={setSelected} />

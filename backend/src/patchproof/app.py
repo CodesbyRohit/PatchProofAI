@@ -234,6 +234,21 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None,
                   examples=examples, limiter=RateLimiter(settings.runs_per_minute), usage=Usage(settings, store),
                   executor=ThreadPoolExecutor(max_workers=settings.max_concurrent_runs, thread_name_prefix="run"))
     event_limiter = RateLimiter(30)
+    purge_state: dict[str, float] = {"at": 0.0}
+
+    def purge_expired() -> None:
+        """Delete finished runs past the retention period (at most once an hour)."""
+        now = time.time()
+        if now - purge_state["at"] > 3600:
+            purge_state["at"] = now
+            store.expire_projects()
+        if settings.run_retention_days and now - purge_state.get("runs_at", 0.0) > 3600:
+            purge_state["runs_at"] = now
+            removed = store.purge_before(now - settings.run_retention_days * 86400)
+            if removed:
+                log.info("retention: deleted %d finished run(s) older than %d days", removed, settings.run_retention_days)
+
+    purge_expired()
 
     app = FastAPI(title="PatchProof AI", version=__version__)
     app.state.process_lock = process_lock
@@ -247,7 +262,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None,
     if settings.cors_origins:
         # Exact origins only (validated at startup). Credentials let a same-site frontend send the session cookie.
         app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_credentials=True,
-                           allow_methods=["GET", "POST"],
+                           allow_methods=["GET", "POST", "DELETE"],
                            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-CSRF-Token"],
                            expose_headers=["Content-Disposition"], max_age=600)
 
@@ -386,6 +401,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None,
         if issue is None and project.trusted:
             ex = examples.get(project.id.removeprefix("example:"))
             issue = ex[0].issue if ex else None
+        purge_expired()
         run = Run(id=f"run_{uuid.uuid4().hex[:12]}", created_at=time.time(), state="queued", owner=principal.owner,
                   project_id=project.id, project_name=project.name, patch_source=req.patch_source, issue=issue,
                   request=req)
@@ -401,6 +417,16 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None,
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str, request: Request) -> Run:
         return ctx.owned_run(run_id, ctx.principal(request))
+
+    @app.delete("/api/runs/{run_id}", status_code=204)
+    def delete_run(run_id: str, request: Request):
+        """Delete a finished run, its logs and diffs. A run that is still queued or executing cannot be deleted."""
+        principal = ctx.principal(request)
+        run = ctx.owned_run(run_id, principal)
+        if run.state in ("queued", "running"):
+            raise HTTPException(409, "This run is still in progress. Delete it after it finishes.")
+        store.delete_run(run_id, principal.owner)
+        return Response(status_code=204)
 
     @app.get("/api/runs/{run_id}/patch.diff")
     def download_patch(run_id: str, request: Request):

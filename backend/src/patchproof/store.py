@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -203,6 +204,60 @@ class Store:
         with self._lock:
             self._conn.execute("DELETE FROM sessions WHERE id_hash = ?", (id_hash,))
             self._conn.commit()
+
+    # -- retention and deletion -----------------------------------------------------------------------------
+
+    def delete_run(self, run_id: str, owner: str) -> bool:
+        """Delete one run and its project copy. Only the owner's own run; returns whether anything was deleted."""
+        with self._lock:
+            row = self._conn.execute("SELECT data FROM runs WHERE id = ? AND owner = ?", (run_id, owner)).fetchone()
+            if not row:
+                return False
+            project_id = json.loads(row[0]).get("project_id")
+            self._conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+            self._conn.execute("DELETE FROM projects WHERE id = ? AND owner = ? AND owner != 'local'", (project_id, owner))
+            self._conn.commit()
+        return True
+
+    def expire_projects(self) -> int:
+        """Delete project copies (uploaded or fetched source files) older than their 24-hour lifetime."""
+        with self._lock:
+            n = self._conn.execute("DELETE FROM projects WHERE created_at < ? AND id NOT LIKE 'example:%'",
+                                   (time.time() - PROJECT_TTL_S,)).rowcount
+            self._conn.commit()
+        return n
+
+    def purge_before(self, cutoff: float) -> int:
+        """Delete finished runs created before `cutoff`, with their projects. Queued and running runs are kept."""
+        with self._lock:
+            old = self._conn.execute(
+                "SELECT id, data FROM runs WHERE created_at < ?", (cutoff,)).fetchall()
+            gone = 0
+            for run_id, data in old:
+                doc = json.loads(data)
+                if doc.get("state") in ("queued", "running"):
+                    continue
+                self._conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+                if not str(doc.get("project_id", "")).startswith("example:"):
+                    self._conn.execute("DELETE FROM projects WHERE id = ?", (doc.get("project_id"),))
+                gone += 1
+            self._conn.execute("DELETE FROM usage WHERE created_at < ? AND state IN ('finished', 'error')", (cutoff,))
+            self._conn.commit()
+        return gone
+
+    def delete_owner_data(self, owner: str, user_id: int | None, subject: str | None) -> dict[str, int]:
+        """Remove everything stored for one account: runs, projects, usage, analytics events, tokens, sessions."""
+        with self._lock:
+            counts = {}
+            for table in ("runs", "projects", "usage"):
+                counts[table] = self._conn.execute(f"DELETE FROM {table} WHERE owner = ?", (owner,)).rowcount  # noqa: S608
+            counts["events"] = (self._conn.execute("DELETE FROM events WHERE subject = ?", (subject,)).rowcount
+                                if subject else 0)
+            self._conn.execute("DELETE FROM entitlements WHERE owner = ?", (owner,))
+            if user_id is not None:
+                self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))  # cascades to sessions and tokens
+            self._conn.commit()
+        return counts
 
     def delete_user_sessions(self, user_id: int) -> None:
         with self._lock:

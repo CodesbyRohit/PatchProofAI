@@ -809,6 +809,8 @@ ul, ol { margin: 0 0 0.6em; padding-left: 1.2em; }
   padding: 12px 16px; border: 1px solid var(--line); background: var(--bg-raised); margin-bottom: 28px; }
 .account p { margin: 0; }
 .account__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.account__delete { flex-basis: 100%; }
+.account__delete p { margin: 0; }
 .github__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 32px 48px; align-items: start; }
 .github__hint { padding-top: 48px; }
 .picker .section__heading, .runform .section__heading { font-size: 1.6rem; margin-bottom: 12px; overflow-wrap: anywhere; }

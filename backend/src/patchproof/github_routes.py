@@ -127,6 +127,22 @@ def register_github_routes(app: FastAPI, ctx: Context) -> None:
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
 
+    @app.delete("/api/account")
+    def delete_account(request: Request):
+        """Delete everything PatchProof stores for this GitHub user and revoke the app authorization."""
+        principal = require_user(request)
+        user_id = principal.user_id or 0
+        if ctx.active:
+            with ctx.active_lock:
+                busy = any((r := store.get_run(rid)) and r.owner == principal.owner for rid in ctx.active)
+            if busy:
+                raise HTTPException(409, "You have a run in progress. Delete your data after it finishes.")
+        require_accounts().disconnect(user_id)  # revoke at GitHub and drop tokens and sessions first
+        counts = store.delete_owner_data(principal.owner, user_id, ctx.usage.subject(principal.owner))
+        response = JSONResponse({"deleted": counts})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return response
+
     @app.post("/api/auth/github/disconnect")
     def disconnect(request: Request):
         principal = require_user(request)

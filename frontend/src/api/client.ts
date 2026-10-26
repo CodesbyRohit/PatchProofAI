@@ -253,6 +253,8 @@ export const auth = {
   signInUrl: () => joinApi(API_BASE, "/api/auth/github/start"),
   signOut: () => request("/api/auth/logout", { method: "POST" }, isOk),
   disconnect: () => request("/api/auth/github/disconnect", { method: "POST" }, isOk),
+  /** Deletes every run, project and usage record stored for this user, and revokes the GitHub authorization. */
+  deleteAccount: () => request("/api/account", { method: "DELETE" }, (x): x is { deleted: Record<string, number> } => isObj(x) && isObj(x.deleted)),
 };
 
 export const gh = {

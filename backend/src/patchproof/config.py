@@ -141,6 +141,7 @@ class Settings:
     repo_max_archive_bytes: int = 25 * 1024 * 1024
     # Usage and product analytics (see usage.py). Prices are the operator's real costs; unset means unmeasured.
     free_monthly_runs: int = 30  # 0: no monthly limit on the free plan
+    run_retention_days: int = 90  # finished runs (logs, diffs) older than this are deleted; 0 keeps them
     analytics: bool = True
     cost_per_sandbox_hour: float | None = None
     cost_per_1k_tokens: float | None = None
@@ -247,6 +248,7 @@ def load_settings() -> Settings:
         cookie_secure=_bool("PATCHPROOF_COOKIE_SECURE", _bool("PATCHPROOF_HOSTED", False)),
         repo_max_archive_bytes=max(1, _int("PATCHPROOF_REPO_MAX_ARCHIVE_MB", 25)) * 1024 * 1024,
         free_monthly_runs=max(0, _int("PATCHPROOF_FREE_MONTHLY_RUNS", 30)),
+        run_retention_days=max(0, _int("PATCHPROOF_RUN_RETENTION_DAYS", 90)),
         analytics=_bool("PATCHPROOF_ANALYTICS", True),
         cost_per_sandbox_hour=_optional_float("PATCHPROOF_COST_PER_SANDBOX_HOUR"),
         cost_per_1k_tokens=_optional_float("PATCHPROOF_COST_PER_1K_MODEL_TOKENS"),
