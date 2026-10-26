@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .base import REPORT_FILENAME, RawExecution, SandboxRunner, pytest_args, truncate
 
+INSTANCE_LABEL = "patchproof.instance"
+
 _status_lock = threading.Lock()
 _status_cache: dict[str, tuple[float, bool, str]] = {}
 
@@ -44,17 +46,22 @@ class DockerSandbox(SandboxRunner):
     name = "docker"
     isolated = True
 
-    def __init__(self, image: str, memory: str = "512m", cpus: str = "1", pids: int = 128):
+    def __init__(self, image: str, memory: str = "512m", cpus: str = "1", pids: int = 128,
+                 instance: str | None = None):
         self.image = image
         self.memory = memory
         self.cpus = cpus
         self.pids = pids
+        # Labels this server's containers so a restarted server can remove the ones it left behind.
+        self.instance = instance
 
     def build_command(self, container: str, workspace: Path, output_dir: Path,
                       per_test_timeout_s: int) -> list[str]:
+        label = ["--label", f"{INSTANCE_LABEL}={self.instance}"] if self.instance else []
         return [
             "docker", "run", "--rm",
             "--name", container,
+            *label,
             "--network", "none",
             "--read-only",
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",  # noqa: S108 - private tmpfs inside the container
@@ -107,6 +114,24 @@ class DockerSandbox(SandboxRunner):
             stdout=truncate(proc.stdout), stderr=truncate(proc.stderr),
             duration_s=duration, sandbox_error=sandbox_error,
         )
+
+    def remove_orphans(self) -> int:
+        """Force-remove containers this instance started that are still present.
+
+        `--rm` and the timeout handler only work while the server that started a container is alive;
+        after a crash or restart its containers would otherwise keep running. Returns how many were removed.
+        """
+        if not self.instance:
+            return 0
+        try:
+            found = subprocess.run(["docker", "ps", "-aq", "--filter", f"label={INSTANCE_LABEL}={self.instance}"],
+                                   capture_output=True, text=True, timeout=15)
+            ids = found.stdout.split() if found.returncode == 0 else []
+            if ids:
+                subprocess.run(["docker", "rm", "-f", *ids], capture_output=True, timeout=60)
+            return len(ids)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return 0
 
 
 def _as_text(data: bytes | str | None) -> str:

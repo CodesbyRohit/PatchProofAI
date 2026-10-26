@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ApiError } from "../api/client";
+import { AccessForm } from "./AccessForm";
 
 type Tone = "info" | "warn" | "bad" | "good";
 
@@ -21,10 +22,19 @@ const ERROR_TITLE: Record<ApiError["kind"], string> = {
   network: "Backend unreachable",
   timeout: "Backend timed out",
   http: "Request rejected",
+  auth: "Access token required",
   malformed: "Unreadable response",
 };
 
 export function ErrorNotice({ error, onRetry, title }: { error: ApiError; onRetry?: () => void; title?: string }) {
+  if (error.kind === "auth") {
+    return (
+      <Notice tone="warn" role="alert" title={ERROR_TITLE.auth}>
+        <p>{error.message}</p>
+        <AccessForm />
+      </Notice>
+    );
+  }
   return (
     <Notice tone="bad" role="alert" title={title ?? ERROR_TITLE[error.kind]}>
       <p>

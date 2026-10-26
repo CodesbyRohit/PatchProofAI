@@ -1,5 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { setToken } from "../api/token";
 import { App } from "../App";
 import { fx, json, mockFetch } from "./fixtures";
 
@@ -90,7 +91,8 @@ describe("run page", () => {
     expect(findings).toHaveTextContent("file.test_protected");
     expect(screen.getByText("not applied")).toBeInTheDocument();
     // No diff exists for a blocked patch, so no diff download is offered.
-    expect(screen.queryByRole("link", { name: /patch\.diff/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /report\.md/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /patch\.diff/ })).not.toBeInTheDocument();
   });
 
   it("surfaces environment collection errors once, with every run they appeared in", async () => {
@@ -104,14 +106,36 @@ describe("run page", () => {
     expect(screen.getByText(/in Baseline run 1\/2, Baseline run 2\/2, Candidate 1 run 1\/2, Candidate 1 run 2\/2/)).toBeInTheDocument();
   });
 
-  it("links the real report downloads", async () => {
+  it("downloads the real reports with the access token and the backend's filename", async () => {
     const run = fx.plausible();
-    mockFetch({ [`GET /api/runs/${run.id}`]: () => json(run), "GET /api/examples": () => json(fx.examples()) });
+    setToken("ppa_test-token");
+    const { calls } = mockFetch({
+      [`GET /api/runs/${run.id}`]: () => json(run),
+      "GET /api/examples": () => json(fx.examples()),
+      [`GET /api/runs/${run.id}/patch.diff`]: () =>
+        new Response("--- a/m.py\n", { headers: { "Content-Disposition": `attachment; filename="${run.id}.diff"` } }),
+      [`GET /api/runs/${run.id}/report.md`]: () => json({ detail: "Run not found." }, 404),
+    });
+    // jsdom has no object URLs; provide them for this test.
+    const createObjectURL = vi.fn(() => "blob:report");
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true, writable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true, writable: true });
+    const clicked: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.download);
+    });
     openRun(run.id);
 
-    expect(await screen.findByRole("link", { name: /patch\.diff/ })).toHaveAttribute("href", `/api/runs/${run.id}/patch.diff`);
-    expect(screen.getByRole("link", { name: /report\.md/ })).toHaveAttribute("href", `/api/runs/${run.id}/report.md`);
-    expect(screen.getByRole("link", { name: /report\.json/ })).toHaveAttribute("href", `/api/runs/${run.id}/report.json`);
+    await userEvent.click(await screen.findByRole("button", { name: /patch\.diff/ }));
+    const diff = calls.find((c) => c.path === `/api/runs/${run.id}/patch.diff`);
+    expect(new Headers(diff?.init?.headers).get("Authorization")).toBe("Bearer ppa_test-token");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clicked).toEqual([`${run.id}.diff`]);
+
+    await userEvent.click(screen.getByRole("button", { name: /report\.md/ }));
+    expect(await screen.findByText("Download failed")).toBeInTheDocument();
+    expect(screen.getByText("Run not found.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /report\.json/ })).toBeInTheDocument();
   });
 
   it("expands a test row to show the real failure message", async () => {

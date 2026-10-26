@@ -1,4 +1,6 @@
-import { api, ApiError, describeDetail } from "../api/client";
+import { joinApi, parseApiBase } from "../api/base";
+import { api, API_BASE, ApiError, describeDetail } from "../api/client";
+import { setToken } from "../api/token";
 import { buildLedger } from "../lib/ledger";
 import { deriveStages } from "../lib/stages";
 import { fx, json, mockFetch } from "./fixtures";
@@ -34,6 +36,27 @@ describe("api client", () => {
     await expect(api.run("run_gone")).rejects.toMatchObject({ status: 404, message: "Run not found." });
   });
 
+  it("sends the access token and classifies 401 as an auth error", async () => {
+    const { calls } = mockFetch({ "GET /api/status": () => json({ detail: "The access token is not valid." }, 401) });
+    setToken("ppa_abc");
+    const err = await api.status().catch((e: unknown) => e);
+    expect(new Headers(calls[0]?.init?.headers).get("Authorization")).toBe("Bearer ppa_abc");
+    expect(err).toMatchObject({ kind: "auth", status: 401, message: "The access token is not valid." });
+  });
+
+  it("sends no Authorization header without a token", async () => {
+    const { calls } = mockFetch({ "GET /api/status": () => json(fx.status()) });
+    await api.status();
+    expect(new Headers(calls[0]?.init?.headers).has("Authorization")).toBe(false);
+  });
+
+  it("sends the Idempotency-Key when starting a run", async () => {
+    const { calls } = mockFetch({ "POST /api/runs": () => json(fx.minimal(), 202) });
+    await api.createRun({ example_id: "x", patch_source: "scripted", scripted_patch_id: "y" }, "key-0123456789");
+    expect(new Headers(calls[0]?.init?.headers).get("Idempotency-Key")).toBe("key-0123456789");
+    expect(new Headers(calls[0]?.init?.headers).get("Content-Type")).toBe("application/json");
+  });
+
   it("aborts requests that exceed the timeout", async () => {
     vi.useFakeTimers();
     try {
@@ -52,6 +75,31 @@ describe("api client", () => {
     const run = fx.minimal();
     mockFetch({ [`GET /api/runs/${run.id}`]: () => json(run) });
     await expect(api.run(run.id)).resolves.toMatchObject({ id: run.id, state: "finished" });
+  });
+});
+
+describe("API base URL", () => {
+  it("defaults to the same origin", () => {
+    expect(API_BASE).toBe(""); // the test build sets no VITE_API_BASE_URL
+    expect(parseApiBase(undefined)).toBe("");
+    expect(parseApiBase("  ")).toBe("");
+  });
+
+  it("normalizes absolute URLs so joining never doubles or drops a slash", () => {
+    for (const raw of ["https://api.example.com", "https://api.example.com/", "https://API.example.com//"]) {
+      expect(joinApi(parseApiBase(raw), "/api/status")).toBe("https://api.example.com/api/status");
+    }
+    expect(joinApi(parseApiBase("https://example.com/patchproof/"), "/api/runs")).toBe("https://example.com/patchproof/api/runs");
+    expect(parseApiBase("http://127.0.0.1:8000", { production: true })).toBe("http://127.0.0.1:8000");
+  });
+
+  it("rejects addresses that would send requests to the wrong place", () => {
+    expect(() => parseApiBase("api.example.com")).toThrow(/absolute URL/);
+    expect(() => parseApiBase("/api")).toThrow(/absolute URL/);
+    expect(() => parseApiBase("ftp://api.example.com")).toThrow(/https:\/\//);
+    expect(() => parseApiBase("https://user:pw@api.example.com")).toThrow(/credentials/);
+    expect(() => parseApiBase("https://api.example.com/?x=1")).toThrow(/query/);
+    expect(() => parseApiBase("http://api.example.com", { production: true })).toThrow(/must use https/);
   });
 });
 

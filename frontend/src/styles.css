@@ -727,14 +727,27 @@ ul, ol { margin: 0 0 0.6em; padding-left: 1.2em; }
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line-strong);
+  background: transparent;
+  color: inherit;
   font-family: var(--font-mono);
   font-size: 0.82rem;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 .download span { color: var(--ink-faint); font-family: var(--font-body); font-size: 0.78rem; }
-.download:hover { border-color: var(--ink); }
+.download:hover:not(:disabled) { border-color: var(--ink); }
+.download:disabled { cursor: progress; opacity: 0.7; }
+
+/* -- access token form ----------------------------------------------------------------------------- */
+
+.access-form { margin-top: 8px; }
+.access-form .field__label { margin-top: 4px; }
+.access-form__row { display: flex; flex-wrap: wrap; gap: 8px; }
+.access-form__row .field { flex: 1 1 220px; min-width: 0; }
 .download::after { content: "↓"; color: var(--ink-faint); }
 
 /* -- history --------------------------------------------------------------------------------------- */
