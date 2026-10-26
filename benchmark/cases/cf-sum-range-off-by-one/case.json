@@ -1,0 +1,20 @@
+{
+  "id": "cf-sum-range-off-by-one",
+  "title": "Inclusive range sum drops its upper bound",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Make the range inclusive",
+    "edits": [
+      {
+        "file": "series.py",
+        "search": "sum(range(1, n))",
+        "replace": "sum(range(1, n + 1))"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "Both targets fail at baseline; the fix passes every test."
+  }
+}

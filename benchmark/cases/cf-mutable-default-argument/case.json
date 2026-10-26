@@ -1,0 +1,20 @@
+{
+  "id": "cf-mutable-default-argument",
+  "title": "Tag lists leak between calls through a mutable default",
+  "category": "correct_fix",
+  "patch": {
+    "label": "None default and a copy",
+    "edits": [
+      {
+        "file": "tags.py",
+        "search": "def add_tag(tag, tags=[]):\n    \"\"\"Return a tag list with `tag` appended.\"\"\"\n    tags.append(tag)",
+        "replace": "def add_tag(tag, tags=None):\n    \"\"\"Return a tag list with `tag` appended.\"\"\"\n    tags = [] if tags is None else list(tags)\n    tags.append(tag)"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "Shared-state target fixed; explicit lists still extended."
+  }
+}

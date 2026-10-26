@@ -1,0 +1,22 @@
+{
+  "id": "fl-only-failure-is-flaky",
+  "title": "The only failure is a flaky test",
+  "category": "flaky",
+  "flaky_deadline_s": 15,
+  "patch": {
+    "label": "Unneeded change",
+    "edits": [
+      {
+        "file": "money.py",
+        "search": "return round(amount * 100)",
+        "replace": "return int(round(amount * 100))"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": null,
+    "rationale": "The failure does not reproduce across baseline runs."
+  },
+  "per_test_timeout_s": 30
+}

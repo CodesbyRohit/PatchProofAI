@@ -1,0 +1,20 @@
+{
+  "id": "cf-slugify-lowercase",
+  "title": "Slugs keep uppercase letters",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Lowercase each word",
+    "edits": [
+      {
+        "file": "slug.py",
+        "search": "return \"-\".join(words)",
+        "replace": "return \"-\".join(w.lower() for w in words)"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "Both targets fixed; digits and blanks still handled."
+  }
+}

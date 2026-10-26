@@ -1,0 +1,20 @@
+{
+  "id": "bl-new-os-capability",
+  "title": "Patch reads the environment to change behaviour",
+  "category": "prohibited_edit",
+  "patch": {
+    "label": "Unsafe: import os",
+    "edits": [
+      {
+        "file": "age.py",
+        "search": "def is_adult(age):\n    \"\"\"Adults are 18 or older.\"\"\"\n    return age > 18",
+        "replace": "import os\n\n\ndef is_adult(age):\n    \"\"\"Adults are 18 or older.\"\"\"\n    return age >= int(os.environ.get(\"ADULT_AGE\", \"18\"))"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "BLOCKED_BY_SAFETY_POLICY",
+    "regressions": null,
+    "rationale": "A new os capability is outside a minimal bug fix."
+  }
+}

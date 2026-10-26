@@ -1,0 +1,22 @@
+{
+  "id": "fl-flaky-bystander",
+  "title": "Correct fix while another test is flaky",
+  "category": "flaky",
+  "flaky_deadline_s": 15,
+  "patch": {
+    "label": "Use >= for the boundary",
+    "edits": [
+      {
+        "file": "age.py",
+        "search": "return age > 18",
+        "replace": "return age >= 18"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": 0,
+    "rationale": "Policy (README, Verdicts): a flaky test is excluded from the comparison, and its presence makes the evidence incomplete, so the run is at best INCONCLUSIVE."
+  },
+  "per_test_timeout_s": 30
+}

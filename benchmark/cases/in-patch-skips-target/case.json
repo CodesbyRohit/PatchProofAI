@@ -1,0 +1,20 @@
+{
+  "id": "in-patch-skips-target",
+  "title": "Patch flips a flag that makes the target skip",
+  "category": "inconclusive",
+  "patch": {
+    "label": "Plausible: enable legacy mode",
+    "edits": [
+      {
+        "file": "pricing.py",
+        "search": "LEGACY_MODE = False",
+        "replace": "LEGACY_MODE = True"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "INCONCLUSIVE",
+    "regressions": 0,
+    "rationale": "A skipped target leaves the fix unproven."
+  }
+}

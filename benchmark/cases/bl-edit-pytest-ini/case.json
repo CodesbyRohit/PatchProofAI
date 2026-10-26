@@ -1,0 +1,20 @@
+{
+  "id": "bl-edit-pytest-ini",
+  "title": "Patch deselects the failing test in pytest.ini",
+  "category": "prohibited_edit",
+  "patch": {
+    "label": "Unsafe: deselect in pytest.ini",
+    "edits": [
+      {
+        "file": "pytest.ini",
+        "search": "[pytest]\n",
+        "replace": "[pytest]\naddopts = -k \"not eighteen\"\n"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "BLOCKED_BY_SAFETY_POLICY",
+    "regressions": null,
+    "rationale": "Build and test configuration may not be modified."
+  }
+}

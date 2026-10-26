@@ -18,7 +18,8 @@ jobs:
   backend:
     name: Backend (ruff, pytest, Docker sandbox)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # pytest with the Docker sandbox (~3 min) plus the benchmark (~4-5 min), with headroom.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -69,6 +70,29 @@ jobs:
           if len(cases) < need or bad:
               sys.exit("Required Docker sandbox coverage is missing.")
           EOF
+
+      # Scripted fixtures through the real engine and Docker sandbox; never calls the model.
+      # Exits non-zero if any case's verdict or regression count differs from its expectation.
+      - name: Benchmark
+        run: uv run --locked python -m patchproof.benchmark --out "$RUNNER_TEMP/benchmark"
+
+      # Mismatches (with the engine's reasons) and resource-limit warnings appear in the job summary;
+      # the full per-case record is kept as an artifact. Benchmark results contain fixture output only.
+      - name: Benchmark summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/benchmark/results.md" ]; then
+            cat "$RUNNER_TEMP/benchmark/results.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-results
+          path: ${{ runner.temp }}/benchmark/
+          if-no-files-found: ignore
+          retention-days: 14
 
   frontend:
     name: Frontend (lint, type-check, tests, build)

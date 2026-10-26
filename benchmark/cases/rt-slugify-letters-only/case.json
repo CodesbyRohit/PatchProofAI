@@ -1,0 +1,20 @@
+{
+  "id": "rt-slugify-letters-only",
+  "title": "Slug fix that throws away digits",
+  "category": "regression_trap",
+  "patch": {
+    "label": "Plausible: lowercase letters only",
+    "edits": [
+      {
+        "file": "slug.py",
+        "search": "re.findall(r\"[A-Za-z0-9]+\", title)",
+        "replace": "re.findall(r\"[a-z]+\", title.lower())"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "FAILED_VERIFICATION",
+    "regressions": 1,
+    "rationale": "Fixes casing but 'v2' becomes 'v'; the digits target still fails."
+  }
+}

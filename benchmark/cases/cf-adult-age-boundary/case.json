@@ -1,0 +1,20 @@
+{
+  "id": "cf-adult-age-boundary",
+  "title": "Age check excludes the boundary",
+  "category": "correct_fix",
+  "patch": {
+    "label": "Use >= for the boundary",
+    "edits": [
+      {
+        "file": "age.py",
+        "search": "return age > 18",
+        "replace": "return age >= 18"
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "VERIFIED_FOR_TESTED_CASES",
+    "regressions": 0,
+    "rationale": "Boundary target fixed, no other behaviour changes."
+  }
+}

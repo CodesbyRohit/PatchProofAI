@@ -75,6 +75,52 @@ def test_flaky_baseline_target_is_not_reproducible():
     assert verdict_for_unusable_baseline(analysis).status == VerdictStatus.inconclusive
 
 
+FLAKY_BYSTANDER = {  # the fl-flaky-bystander benchmark case: one real target plus one flaky bystander
+    "tests/test_age.py::test_eighteen_is_adult": "failed",
+    "tests/test_age.py::test_thirty_is_adult": "passed",
+    "tests/test_age.py::test_seventeen_is_not_adult": "passed",
+    "tests/test_age.py::test_newborn_is_not_adult": "passed",
+}
+FLAKY_TEST = "tests/test_cache.py::test_cache_warms_up_in_time"
+
+
+def _flaky_bystander_baseline():
+    runs = [make_run("b1", FLAKY_BYSTANDER | {FLAKY_TEST: "failed"}),
+            make_run("b2", FLAKY_BYSTANDER | {FLAKY_TEST: "passed"})]
+    analysis = analyze_baseline(runs)
+    assert analysis.usable and analysis.flaky == [FLAKY_TEST]
+    assert analysis.targets == ["tests/test_age.py::test_eighteen_is_adult"]
+    return runs, analysis
+
+
+def test_flaky_bystander_makes_a_clean_fix_inconclusive():
+    runs, analysis = _flaky_bystander_baseline()
+    all_pass = {n: "passed" for n in FLAKY_BYSTANDER} | {FLAKY_TEST: "passed"}
+    v = decide(analysis, runs, [make_run("c1", all_pass), make_run("c2", all_pass)])
+    assert v.status == VerdictStatus.inconclusive
+    assert any("flaky" in r and FLAKY_TEST in r for r in v.reasons)
+    cats = {c.nodeid: c.category for c in v.comparison}
+    assert cats[FLAKY_TEST] == ComparisonCategory.flaky  # excluded from the comparison itself
+    assert cats["tests/test_age.py::test_eighteen_is_adult"] == ComparisonCategory.fixed
+
+
+def test_failure_evidence_still_wins_over_a_flaky_bystander():
+    runs, analysis = _flaky_bystander_baseline()
+    regressed = {n: "passed" for n in FLAKY_BYSTANDER} | {
+        "tests/test_age.py::test_seventeen_is_not_adult": "failed", FLAKY_TEST: "passed"}
+    v = decide(analysis, runs, [make_run("c1", regressed), make_run("c2", regressed)])
+    assert v.status == VerdictStatus.failed
+    assert any("flaky" in r for r in v.reasons)
+
+
+def test_memory_killed_candidate_runs_are_inconclusive_not_failed():
+    runs, analysis = baseline()
+    killed = [make_run(f"c{i}", {}, health=RunHealth.sandbox_error) for i in range(2)]
+    v = decide(analysis, runs, killed)
+    assert v.status == VerdictStatus.inconclusive
+    assert v.comparison == []
+
+
 def test_all_passing_baseline_has_nothing_to_verify():
     runs, analysis = baseline({"t::a": "passed"})
     assert not analysis.usable

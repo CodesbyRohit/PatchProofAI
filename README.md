@@ -39,7 +39,7 @@ Both results above are real output from the Docker sandbox, not mock-ups.
                                                                     evidence sent back (max 2 attempts)
 ```
 
-1. **Baseline.** The original test suite runs twice in the sandbox. Tests that fail in *both* runs become the reproduction targets. Tests that change outcome between identical runs are marked flaky and excluded.
+1. **Baseline.** The original test suite runs twice in the sandbox. Tests that fail in *both* runs become the reproduction targets. Tests that change outcome between identical runs are marked flaky: they are excluded from the comparison, and because the suite did not behave reproducibly, the run as a whole can at best be INCONCLUSIVE.
 2. **Diagnosis.** BharatCode (`qwen-3.8-27b` by default) receives only the relevant source files, the failing test output, and the list of tests that must keep passing. It returns a structured JSON diagnosis: root cause, cited evidence with line ranges, exact search/replace edits, possible regressions, and its confidence.
 3. **Validation.** Before anything runs, the backend checks the patch: it may only change existing `.py` source files, never tests, `conftest.py`, or build/CI config. It may not escape the project, must parse, must stay under size limits, and may not add new process, file, network, or interpreter-control capabilities (`os`, `subprocess`, `open`, `eval`, `__import__`, …).
 4. **Verification.** The patched copy runs twice. Every test is compared with its baseline outcome.
@@ -51,10 +51,12 @@ Both results above are real output from the Docker sandbox, not mock-ups.
 |---|---|
 | `VERIFIED_FOR_TESTED_CASES` | Every reproduction target failed at baseline and passed in every candidate run, and every test that passed at baseline still passes. This is evidence for the tested cases, **not** a proof of correctness. |
 | `FAILED_VERIFICATION` | Observed failure evidence: a target still fails, a previously passing test now fails (regression), a test disappeared, the patch broke test collection, or the patch could not be applied. |
-| `INCONCLUSIVE` | No failure was observed, but the evidence is incomplete: environment errors (e.g. a missing dependency), flaky tests, skipped targets, timeouts, crashes, no reproducible failure, or no usable model response. |
+| `INCONCLUSIVE` | No failure was observed, but the evidence is incomplete: environment errors (e.g. a missing dependency), any flaky test (even one unrelated to the targets), skipped targets, timeouts, crashes or resource-limit kills (e.g. the sandbox's memory limit), no reproducible failure, or no usable model response. |
 | `BLOCKED_BY_SAFETY_POLICY` | The patch broke the safety policy (e.g. it edited a test), or no sandbox was available to run untrusted code. Nothing was executed. |
 
 Precedence is conservative: any failure evidence makes the verdict FAILED. Otherwise any gap in the evidence makes it INCONCLUSIVE. Only a clean, complete, repeated pass is VERIFIED. Tests that already failed before the patch are not counted as regressions.
+
+A patched run killed by a resource limit is a gap, not failure evidence: the process can die before the runner records which tests passed or failed, so the patch was not shown to be wrong, only not verifiable. A hang that the per-test timeout catches is different: the runner records the timed-out test as failed, so that is failure evidence. Resource limits never produce BLOCKED_BY_SAFETY_POLICY, which is reserved for patches rejected by a safety rule before execution.
 
 ## Bundled examples
 
@@ -153,6 +155,39 @@ $run = Invoke-RestMethod -Method Post http://localhost:8000/api/runs -ContentTyp
 Invoke-RestMethod "http://localhost:8000/api/runs/$($run.id)"
 ```
 
+## Benchmark
+
+`benchmark/` holds 29 deterministic bug-fixing cases: correct fixes, plausible patches that regress, fixes that leave a target failing, prohibited edits, invalid patches, a collection break, cases that must stay inconclusive, and flaky tests. Each case is a small project with one **scripted** patch, run through the real verification engine and Docker sandbox. No model is called, and the patches are labelled `benchmark_fixture`, never as AI output. The benchmark measures the verifier, not a model's ability to fix bugs. Details, scope and limitations are in [benchmark/README.md](benchmark/README.md).
+
+```bash
+cd backend
+uv run python -m patchproof.benchmark     # Docker sandbox required; writes benchmark/results/
+```
+
+**Measured result: 29 of 29 cases matched in two complete runs of the benchmark** (2 baseline + 2 patched runs per case, Docker sandbox):
+
+| Run | Environment | Result | Benchmark time |
+|---|---|---|---|
+| [GitHub Actions 40282328735](https://github.com/CodesbyRohit/PatchProofAI/actions/runs/40282328735) | Ubuntu 24.04 runner | 29 of 29 | 117 s |
+| Local, 2026-10-26 | Windows 11, Docker Desktop 29.9.2 | 29 of 29 | 292 s |
+
+| Measure | Result (both runs) |
+|---|---|
+| Correct fixes verified | 8 of 8 |
+| Plausible regressing patches rejected, with the exact regression count | 5 of 5 |
+| Fixes leaving a target failing, invalid patches, and the collection break rejected | 5 of 5 |
+| Prohibited edits blocked | 5 of 5 |
+| Missing dependency, no reproducible failure, skipped target, and flaky cases kept INCONCLUSIVE | 5 of 5 |
+| Memory-exhausting patch: run actually killed (exit 137) and reported INCONCLUSIVE | 1 of 1 |
+| Patches verified that should not have been | 0 |
+
+Expected outcomes were written from the verdict rules below before the first run. The first full runs, before the fixes described next, matched 27 of 29 cases. The two mismatches were investigated rather than tuned away:
+
+- **`fl-flaky-bystander`:** a correct fix next to an unrelated flaky test was VERIFIED, contradicting the documented policy. **The engine was fixed:** a flaky baseline test now makes the run INCONCLUSIVE (failure evidence still takes precedence), with regression tests in `backend/tests/test_verdict.py`.
+- **`rt-digits-infinite-loop`:** a patch that loops forever while growing a list is killed by the sandbox's 512 MB memory limit before any per-test result exists. Per the policy below, that is INCONCLUSIVE, not FAILED, so **the expectation was corrected** and the case now also requires the kill to actually happen. A CPU-only hang (`rt-power-of-two-hang`) is caught by the per-test timeout and is FAILED with 2 regressions.
+
+CI runs the full benchmark on every push and publishes the per-case table in the job summary and as the `benchmark-results` artifact. These results measure the verifier on scripted patches only; they say nothing about the quality of model-generated fixes, and no live BharatCode run has been observed yet.
+
 ## API
 
 | Method | Path | Purpose |
@@ -198,7 +233,7 @@ There has been no professional security audit.
 
 ```bash
 cd backend
-uv run pytest -q          # 127 tests (Docker tests are skipped if Docker is unavailable)
+uv run pytest -q          # 152 tests (Docker tests are skipped if Docker is unavailable)
 uv run ruff check src tests
 
 cd ../frontend
@@ -214,7 +249,7 @@ The frontend tests render real run records captured from the API (`frontend/src/
 
 `.github/workflows/ci.yml` runs on pushes to `main` and `feat/**`, on pull requests, and on manual dispatch. It has a read-only token, actions pinned to commit SHAs, and no deploy step.
 
-- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 5) actually ran and passed.
+- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 5) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
 - **Frontend:** `npm ci`, then lint, type-check, tests and the production build.
 
 CI never needs a BharatCode key. Model behaviour, including the HTTP 402 `plan_required` path, is covered by scripted fake clients and captured fixtures, so no provider calls are made. To reproduce the Docker requirement locally:
@@ -236,7 +271,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | BharatCode client | Implemented and tested with mocks; live auth and catalog confirmed; live generation blocked by account plan (HTTP 402) |
 | Bundled demo examples | 3 projects, 6 scripted patches, verdicts as listed above |
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
-| Benchmark (20+ cases) | Planned |
+| Benchmark | 29 scripted cases through the real engine and Docker sandbox; 29 of 29 in two complete runs (CI and local), run on every push |
 | CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
 | Hosted deployment | None. The sandbox needs a Docker host, so PatchProof currently runs locally. |
 
@@ -264,6 +299,8 @@ frontend/
   src/components/           verdict stamp, test ledger, pipeline, diff, evidence
   src/pages/                workspace, run, history
   src/test/                 Vitest suites and captured API fixtures
+benchmark/
+  cases/                    one folder per case: case.json (patch, expected outcome) and project/
 examples/                   bundled demo projects with scripted patches
 scripts/                    sandbox image build scripts
 ```
