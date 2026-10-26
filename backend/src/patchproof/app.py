@@ -230,6 +230,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None,
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
+            # Unknown API paths must stay JSON 404s, never the app shell.
+            if path == "api" or path.startswith("api/"):
+                raise HTTPException(404, "Not found.")
             candidate = (dist / path).resolve()
             if path and candidate.is_file() and candidate.is_relative_to(dist.resolve()):
                 return FileResponse(candidate)

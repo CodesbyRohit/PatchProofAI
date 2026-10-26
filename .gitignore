@@ -23,6 +23,9 @@ frontend/dist/
 playwright-report/
 test-results/
 
+# Vercel CLI project link and local build output
+.vercel/
+
 # OS / editors
 .DS_Store
 Thumbs.db

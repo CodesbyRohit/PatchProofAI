@@ -22,6 +22,18 @@ describe("api client", () => {
     expect(err).toMatchObject({ kind: "http", status: 502, message: "The PatchProof backend is not responding." });
   });
 
+  it("explains a non-JSON 404 as /api not being routed to the backend", async () => {
+    mockFetch({ "GET /api/status": () => new Response("<html>404: NOT_FOUND</html>", { status: 404 }) });
+    const err = await api.status().catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: "http", status: 404 });
+    expect((err as ApiError).message).toMatch(/\/api is not routed to a PatchProof backend/);
+  });
+
+  it("keeps the backend's own message for a JSON 404", async () => {
+    mockFetch({ "GET /api/runs/run_gone": () => json({ detail: "Run not found." }, 404) });
+    await expect(api.run("run_gone")).rejects.toMatchObject({ status: 404, message: "Run not found." });
+  });
+
   it("aborts requests that exceed the timeout", async () => {
     vi.useFakeTimers();
     try {

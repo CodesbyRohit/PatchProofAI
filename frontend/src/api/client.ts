@@ -47,6 +47,10 @@ const HTTP_FALLBACK: Record<number, string> = {
   504: "The PatchProof backend did not respond in time.",
 };
 
+const API_NOT_ROUTED =
+  "The PatchProof API is not reachable from this site: /api is not routed to a PatchProof backend. " +
+  "If this frontend is hosted on its own (for example on Vercel), configure the /api rewrite to the backend.";
+
 async function request<T>(
   path: string,
   init: RequestInit,
@@ -77,7 +81,11 @@ async function request<T>(
     }
   }
   if (!res.ok) {
-    const message = describeDetail(body) ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
+    // The backend answers every 404 with JSON. A 404 without a JSON body came from whatever serves the page
+    // (for example a static host such as Vercel) because /api is not routed to the PatchProof backend.
+    const unrouted = res.status === 404 && body === undefined ? API_NOT_ROUTED : null;
+    const message =
+      describeDetail(body) ?? unrouted ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
     throw new ApiError("http", message, res.status);
   }
   if (body === undefined || !validate(body)) {

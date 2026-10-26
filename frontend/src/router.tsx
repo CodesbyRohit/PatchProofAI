@@ -1,6 +1,7 @@
 import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
 
-// A tiny History-API router. The backend serves index.html for unknown paths, so deep links work.
+// A tiny History-API router. The backend (or, on Vercel, the rewrite in vercel.json) serves index.html for
+// unknown non-API paths, so deep links work.
 
 const NAV_EVENT = "patchproof:navigate";
 

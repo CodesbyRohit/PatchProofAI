@@ -58,6 +58,13 @@ describe("workspace", () => {
     expect(screen.getAllByText(/Cannot reach the PatchProof backend/).length).toBeGreaterThan(0);
   });
 
+  it("explains a hosted frontend whose /api is not routed to a backend", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<!doctype html><h1>404: NOT_FOUND</h1>", { status: 404 })));
+    render(<App />);
+    expect(await screen.findByText("Backend status unavailable")).toBeInTheDocument();
+    expect(screen.getAllByText(/\/api is not routed to a PatchProof backend/).length).toBeGreaterThan(0);
+  });
+
   it("shows the backend's reason when it refuses to start a run", async () => {
     mockFetch({ ...base, "POST /api/runs": () => json({ detail: "Too many runs. Please wait a minute." }, 429) });
     render(<App />);
