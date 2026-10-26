@@ -130,7 +130,7 @@ jobs:
   frontend-quality:
     name: Frontend quality (routing, responsive, Lighthouse)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30  # Lighthouse measures each page 3 times
     defaults:
       run:
         working-directory: frontend

@@ -355,7 +355,7 @@ node quality/serve.mjs 4175    # browse the build with Vercel's routing at http:
 - CLS at most 0.05;
 - accessibility 100 and Agentic Browsing 100;
 - every best-practices and SEO audit passes, with two explained exceptions: console errors from the absent API, and `is-crawlable` on the pages `robots.txt` excludes;
-- performance at least 60 on mobile and 90 on desktop. These floors are deliberately loose, so slower CI machines do not fail; the measured scores are below.
+- **median** performance of 3 runs per page at least 60 on mobile and 90 on desktop. Identical runs of the same build scored 85 to 100, so one slow run cannot fail the build, but a real slowdown that affects most runs does: a 1.5 s blocking script injected into a copy of the build dropped the desktop median to 86 on every page and failed the check, while the clean build passed twice. The mobile floor is loose and would not catch a regression that size. Layout shift (worst run), accessibility, Agentic Browsing and every best-practices and SEO audit must hold in **every** run.
 
 **Measured on 2026-10-26.** Setup: Windows 11, Chrome 156, Lighthouse 13.5.0, DevTools throttling, no backend connected, and both builds served the same way. Figures are medians of 3 runs of each build.
 
