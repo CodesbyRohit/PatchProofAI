@@ -1,0 +1,22 @@
+{
+  "name": "patchproof-frontend-quality",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Checks of the built frontend: Vercel routing and discovery files, responsive layout, Lighthouse budgets.",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "routing": "node routing.mjs",
+    "responsive": "node responsive.mjs",
+    "lighthouse": "node lighthouse.mjs",
+    "check": "node routing.mjs && node responsive.mjs && node lighthouse.mjs"
+  },
+  "devDependencies": {
+    "@vercel/routing-utils": "6.6.0",
+    "chrome-launcher": "1.2.2",
+    "lighthouse": "13.5.0",
+    "playwright-core": "1.64.0"
+  }
+}

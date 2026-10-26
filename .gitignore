@@ -20,6 +20,7 @@ backend/.data/
 # Node / frontend
 node_modules/
 frontend/dist/
+frontend/quality/out/
 playwright-report/
 test-results/
 

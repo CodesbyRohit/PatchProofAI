@@ -1,0 +1,8 @@
+# Run pages and history show data from the verification API; they are not useful search results.
+User-agent: *
+Allow: /
+Disallow: /runs/
+Disallow: /history
+Disallow: /api/
+
+Sitemap: https://patch-proof-ai.vercel.app/sitemap.xml

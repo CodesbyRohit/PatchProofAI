@@ -1,0 +1,25 @@
+# PatchProof AI
+
+> PatchProof AI checks whether a proposed fix for a Python bug actually holds. It runs the project's pytest suite before and after the patch inside an isolated Docker sandbox, compares every test, and reports a verdict decided by deterministic rules over the observed results, never by the model.
+
+Status: this site (patch-proof-ai.vercel.app) hosts the web interface only. The verification API and its Docker sandbox run on a separate host that is not connected yet, so the site cannot run verifications at the moment. PatchProof runs fully when started locally from the repository.
+
+## How a verification works
+
+- Baseline: the original test suite runs twice, so a failure must reproduce before a fix is evaluated.
+- Patch: the candidate patch comes from the BharatCode model, from the user as a unified diff, or from a maintainer-written demo patch (always labelled as such). Patches may not modify tests or test configuration.
+- Candidate: the patched project is tested twice more, each time in a fresh container with no network access.
+- Verdict: VERIFIED_FOR_TESTED_CASES, FAILED_VERIFICATION, INCONCLUSIVE or BLOCKED_BY_SAFETY_POLICY, with per-test evidence, regressions, logs and the exact diff. "Verified" means verified for the tested cases only.
+
+## Documentation
+
+- [README](https://github.com/CodesbyRohit/PatchProofAI/blob/main/README.md): overview, quick start, HTTP API, security model and limitations
+- [Verifier benchmark](https://github.com/CodesbyRohit/PatchProofAI/blob/main/benchmark/README.md): 29 deterministic cases that test the verifier itself, not a model's ability to fix bugs
+- [Bundled examples](https://github.com/CodesbyRohit/PatchProofAI/tree/main/examples): small Python projects with scripted demo patches
+- [Source code](https://github.com/CodesbyRohit/PatchProofAI) (MIT license)
+
+## Limitations
+
+- Python projects with pytest only; third-party dependencies are not installed in the sandbox.
+- A verdict is only as strong as the project's tests.
+- Live AI patch generation through BharatCode has not yet been observed end to end.

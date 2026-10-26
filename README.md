@@ -241,7 +241,10 @@ The browser reaches the API either directly (`VITE_API_BASE_URL` plus a CORS all
 Routing in `vercel.json`:
 
 - Files that exist in `dist` (hashed `/assets/*`, `favicon.svg`) are served directly, with Vercel's default caching. A long-lived `Cache-Control` on `/assets/*` is deliberately not set: Vercel would attach it to 404s for missing assets too, and browsers would keep those 404s.
-- Any other path except `/api` and `/assets/*` is rewritten to `index.html`, so reloading `/history` or `/runs/<id>` works.
+- Paths **without a dot**, other than `/api` and `/assets/*`, are rewritten to `index.html`, so reloading `/history` or `/runs/<id>` works. The app's routes never contain a dot. So a missing file (`/llms.txt` before it existed, `/.well-known/ai-catalog.json`, `/data.json`) is a real 404, not the app's HTML with status 200.
+- `public/llms.txt`, `robots.txt` and `sitemap.xml` are served as files. `robots.txt` keeps `/runs/` and `/history` out of search: they only show data from the API. That is why Lighthouse's SEO score is 63 on those pages and 100 on the home page.
+- No `/.well-known/ai-catalog.json` is published. Lighthouse 13.5 validates it against the Agentic Resource Discovery spec, whose entries are agents, agent cards, MCP servers, skills and registries. PatchProof deploys none of these, so a catalog would advertise capabilities that do not exist. The URL returns 404, which the audit treats as not applicable.
+- Every response carries `X-Content-Type-Options: nosniff`, a referrer policy, a permissions policy, and a CSP that forbids framing, `<object>` and foreign `<base>`/form targets.
 - `/api` and `/api/*` are **never** rewritten to `index.html`. Until the backend rewrite below is added, they return Vercel's 404, and the workspace says "/api is not routed to a PatchProof backend" instead of rendering broken data.
 - `x-vercel-enable-rewrite-caching: 0` tells Vercel's CDN not to cache proxied API responses, which would freeze run polling. This is Vercel's documented behaviour. Confirm it on the live site once the backend rewrite exists: polling a running run must show its state change.
 
@@ -393,12 +396,53 @@ npm run build
 
 The frontend tests render real run records captured from the API (`frontend/src/test/fixtures/`, provenance in its README): the four verdicts, a missing API key, a simulated HTTP 402, polling, upload rejection, unreachable backend, timeouts and malformed responses.
 
+### Frontend quality checks
+
+```bash
+cd frontend && npm run build
+npm ci --prefix quality
+node quality/routing.mjs       # routing, 404s, llms.txt / robots.txt / sitemap.xml, headers
+node quality/responsive.mjs    # needs Chrome; set CHROME_PATH if it is not in the default location
+node quality/lighthouse.mjs    # budgets below; writes quality/out/lighthouse.md and JSON reports
+node quality/serve.mjs 4175    # browse the build with Vercel's routing at http://127.0.0.1:4175
+```
+
+**Lighthouse budgets** (every page, mobile and desktop):
+
+- CLS at most 0.05;
+- accessibility 100 and Agentic Browsing 100;
+- every best-practices and SEO audit passes, with two explained exceptions: console errors from the absent API, and `is-crawlable` on the pages `robots.txt` excludes;
+- **median** performance of 3 runs per page at least 60 on mobile and 90 on desktop. Identical runs of the same build scored 85 to 100, so one slow run cannot fail the build, but a real slowdown that affects most runs does: a 1.5 s blocking script injected into a copy of the build dropped the desktop median to 86 on every page and failed the check, while the clean build passed twice. The mobile floor is loose and would not catch a regression that size. Layout shift (worst run), accessibility, Agentic Browsing and every best-practices and SEO audit must hold in **every** run.
+
+**Measured on 2026-10-26.** Setup: Windows 11, Chrome 156, Lighthouse 13.5.0, DevTools throttling, no backend connected, and both builds served the same way. Figures are medians of 3 runs of each build.
+
+| Mobile page | CLS before → after | Desktop CLS before → after |
+|---|---|---|
+| `/` | 0.334 → 0.031 | 0.106 → 0.016 |
+| `/history` | 0.240 → 0.000 | 0.014 → 0.000 |
+| `/runs/<id>` | 0.222 → 0.000 | 0.016 → 0.000 |
+
+- **CLS** was identical in every run.
+- **Performance** was not stable on this machine. The same unchanged mobile run page scored anywhere from 67 to 93 across sequential runs, because total blocking time varied with background load. Across the final runs, mobile performance was 86–93 on `/` and `/history`, and desktop 96–100.
+- **Agentic Browsing and SEO.** On the live site, Agentic Browsing was 43–50 and SEO 91. Locally after these changes, both are 100 (SEO 63 on the deliberately excluded pages).
+
+- **Fonts.** Nearly all of the layout shift came from web fonts: the browser only requests a font once text using it is rendered, so the page first painted in fallback fonts and reflowed when they arrived. The build now preloads the three fonts that shape the first screen.
+- **Interleaved runs.** Interleaved runs (5 per variant, alternating to cancel machine-load drift) showed the preloads cost about 200 ms of first paint and leave LCP unchanged (median 3155 ms → 3085 ms).
+- **Code splitting.** Route-level splitting was measured and **rejected**: no change on `/`, and direct loads of a run page about 500 ms slower.
+- **Mobile performance target not met.** Performance of 95+ on mobile under DevTools throttling is not met. The app is rendered in the browser, so nothing appears until about 81 KB of gzipped JavaScript (mostly React) has loaded and run. Pre-rendering the static page shell would be the next step. Lighthouse's default simulated throttling scores the same pages higher (the live baseline was 88–98).
+
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on pushes to `main` and `feat/**`, on pull requests, and on manual dispatch. It has a read-only token, actions pinned to commit SHAs, and no deploy step.
 
 - **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 9) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
 - **Frontend:** `npm ci`, then lint, type-check, tests and the production build.
+- **Frontend quality:** builds the frontend and serves it with Vercel's own routing compiler (`@vercel/routing-utils`), then runs `frontend/quality/`:
+  - `routing.mjs`: client routes, non-HTML 404s for missing files and `/api`, the discovery files, security headers, and every link in `llms.txt`.
+  - `responsive.mjs`: 9 viewports from 320×568 to 1920×1080, on every page, both with no backend and with captured API responses. It checks for no horizontal overflow, 24 px touch targets, and no unexplained console errors, and saves screenshots.
+  - `lighthouse.mjs`: Lighthouse 13.5 budgets with real DevTools throttling.
+
+  Those tools have their own lockfile in `frontend/quality/` and are not app dependencies.
 
 CI never needs a BharatCode key. Model behaviour, including the HTTP 402 `plan_required` path, is covered by scripted fake clients and captured fixtures, so no provider calls are made. To reproduce the Docker requirement locally:
 

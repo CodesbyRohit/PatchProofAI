@@ -83,7 +83,8 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-main { flex: 1; }
+/* At least one screen tall, so the footer starts below the fold and does not jump when content loads. */
+main { flex: 1; min-height: 100vh; min-height: 100svh; }
 
 a { color: inherit; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 a:hover { text-decoration-color: currentColor; }
@@ -242,7 +243,7 @@ ul, ol { margin: 0 0 0.6em; padding-left: 1.2em; }
 /* -- status strip ---------------------------------------------------------------------------------- */
 
 .status { border: 1px solid var(--line); background: var(--bg-raised); }
-.status--loading { padding: 14px 16px; color: var(--ink-faint); }
+.status--loading .status__value { color: var(--ink-faint); }
 .status__item {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -580,7 +581,9 @@ ul, ol { margin: 0 0 0.6em; padding-left: 1.2em; }
 .ledger__row--good .ledger__test { box-shadow: inset 3px 0 0 var(--verified); }
 .ledger__row--warn .ledger__test { box-shadow: inset 3px 0 0 var(--inconclusive); }
 .ledger__test { text-align: left; font-weight: 400; min-width: 260px; }
-.ledger__toggle { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; }
+/* At least 24px tall (WCAG 2.5.8), more on touch screens: one line of small mono text alone is ~20px. */
+.ledger__toggle { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; min-height: 24px; }
+@media (pointer: coarse) { .ledger__toggle { min-height: 32px; } }
 .ledger__toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ledger__caret { color: var(--ink-faint); width: 10px; }
 .ledger__name { font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink); }
