@@ -243,6 +243,7 @@ class Engine:
 
     def _ai_loop(self, run: Run, project: Project, files: dict[str, str], notify: Callable[[Run], None]) -> None:
         if self.client is None or not self.client.configured:
+            run.model_error_kind = "not_configured"
             self._event(run, "diagnosis", "failed", "BharatCode API key is not configured on the server.", notify)
             return self._finish(run, Verdict(
                 status=VerdictStatus.inconclusive,
@@ -261,6 +262,7 @@ class Engine:
             source = self.client.ensure_model(self.settings.model)
             self._event(run, "diagnosis", "info", f"Model {self.settings.model} validated against the {source} list", notify)
         except BharatCodeError as err:
+            run.model_error_kind = err.kind
             self._event(run, "diagnosis", "failed", err.user_message(), notify)
             return self._finish(run, Verdict(status=VerdictStatus.inconclusive,
                                              headline="Inconclusive: the model could not be used.",
@@ -277,6 +279,7 @@ class Engine:
             except (BharatCodeError, DiagnosisParseError) as err:
                 msg = err.user_message() if isinstance(err, BharatCodeError) else f"Model output was unusable: {err}"
                 attempt.error = msg
+                run.model_error_kind = err.kind if isinstance(err, BharatCodeError) else "malformed"
                 self._event(run, "diagnosis", "failed", msg, notify)
                 if verdict is None:  # otherwise the previous attempt's observed verdict stands
                     verdict = Verdict(status=VerdictStatus.inconclusive,
