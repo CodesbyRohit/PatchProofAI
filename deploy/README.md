@@ -113,6 +113,76 @@ rate-limit budget), and Vercel's limits for proxied requests apply.
 7. Browser developer tools: no CORS errors in the console. API requests go to the API host (option A) or to
    `/api` on the Vercel domain (option B).
 
+## Optional: GitHub sign-in and repositories
+
+With a GitHub App, people sign in with GitHub and verify fixes on their own repositories. Public repositories
+can be used without installing the app. Private ones need the app installed on them. PatchProof uses only the
+signed-in user's token, which reaches just what both the user and the app can access, so no app private key is
+needed.
+
+**1. Register the app** (GitHub → Settings → Developer settings → GitHub Apps → New GitHub App):
+
+| Field | Value |
+|---|---|
+| Callback URL | `https://<site>/api/auth/github/callback` (the address the browser uses for the API; see below) |
+| Expire user authorization tokens | On (8-hour tokens with refresh tokens) |
+| Request user authorization (OAuth) during installation | Optional |
+| Webhook | Off (PatchProof does not use webhooks) |
+| Where can this app be installed | "Only on this account" for a private instance, "Any account" for a public one |
+
+Repository permissions (no organization or account permissions):
+
+| Permission | Access | Why |
+|---|---|---|
+| Metadata | Read-only | Required by GitHub; repository names and visibility |
+| Contents | Read-only | Branches, commits and the archive of the pinned commit |
+| Contents | Read and write (only with pull requests) | Create the `patchproof/<run>` branch and its single commit |
+| Pull requests | Read and write (only with pull requests) | Open the draft pull request |
+
+Leave writes off unless you set `PATCHPROOF_GITHUB_PR_WRITES=1`; patches can always be downloaded.
+
+**2. Configure the API host** (`/etc/patchproof/patchproof.env`):
+
+```bash
+GITHUB_APP_CLIENT_ID=Iv1....                 # the app's Client ID (not the App ID)
+GITHUB_APP_CLIENT_SECRET=...                 # generate a client secret on the app page; a secret
+GITHUB_APP_SLUG=your-app-name                # from the app's public URL; used for the install link
+PATCHPROOF_GITHUB_CALLBACK_URL=https://<site>/api/auth/github/callback
+PATCHPROOF_APP_URL=https://<site>            # where the browser returns after signing in
+PATCHPROOF_SECRET_KEY=...                    # .venv/bin/python -m patchproof.accounts new-key; encrypts stored tokens
+PATCHPROOF_GITHUB_ALLOWED_LOGINS=you,colleague   # who may sign in (required in hosted mode without access tokens)
+PATCHPROOF_COOKIE_SECURE=1
+# PATCHPROOF_GITHUB_PR_WRITES=1              # only if the app has the write permissions above
+```
+
+**3. Keep the site and the API same-site.** The session is an HttpOnly cookie. Browsers block cookies set by a
+different site (for example an API on `api.example.com` called from `*.vercel.app`). Use either:
+
+- the Vercel rewrite of `/api/*` (main README, "Connecting the backend"), so `<site>` is the Vercel domain; or
+- your own domain for both, such as `app.example.com` (Vercel) and `api.example.com` (API), with
+  `VITE_API_BASE_URL=https://api.example.com` and `PATCHPROOF_CORS_ORIGINS=https://app.example.com`.
+
+**4. Verify:** open `<site>/github`, sign in, pick a repository and branch, run a verification with your own diff, and
+check that another GitHub account cannot open the run's URL.
+
+What the integration enforces:
+
+- **Sign-in:** a single-use `state` bound to the browser by a cookie, plus PKCE. The identity comes from
+  GitHub's `/user`, and an optional login allowlist applies.
+- **Sessions:** only a hash of the session cookie is stored, and every state-changing request needs the
+  session's CSRF token.
+- **Tokens:** GitHub tokens are encrypted at rest and refreshed on the server. They never reach the browser,
+  the sandbox or the model.
+- **Isolation:** every run, project, report and pull request is owned by one user, and other users get 404.
+- **Runs:** each run is pinned to one commit SHA. The archive is fetched only from `codeload.github.com`, is
+  size-limited, and is filtered with the same path validation as uploads (symlinks, binaries, oversized files
+  and Git LFS pointers are skipped and listed).
+- **AI on private code:** AI mode on a private repository requires explicit consent to send selected files to
+  the model API.
+- **Pull requests:** only for runs verified for the tested cases, after the user approves the exact diff
+  (checked by hash). Each one gets a new branch from the pinned commit and is opened as a draft. Retries reuse
+  the same branch and pull request.
+
 ## Operations
 
 - **Logs:** `journalctl -u patchproof -f`. Startup problems (invalid configuration, a second process on the

@@ -80,6 +80,41 @@ def test_restart_removes_containers_left_by_a_previous_process(docker_settings):
         subprocess.run(["docker", "rm", "-f", started.stdout.strip()], capture_output=True, timeout=60)
 
 
+def test_private_github_repository_run_is_verified_in_the_sandbox(docker_settings, tmp_path):
+    """Repository -> pinned commit -> sanitized workspace -> Docker baseline and candidate runs -> verdict.
+
+    GitHub is the in-memory fake from tests/github_fake.py; everything after the archive is the real engine
+    and the real Docker sandbox.
+    """
+    from urllib.parse import parse_qs, urlsplit
+
+    from cryptography.fernet import Fernet
+    from fastapi.testclient import TestClient
+    from github_fake import FakeGitHub, Repo
+    from test_github import BUGGY, FIX, RUN_GITHUB, wait
+
+    from patchproof.app import create_app
+    from patchproof.github import GitHubClient
+
+    fake = FakeGitHub()
+    fake.repos["alice/private-app"] = Repo(id=11, full_name="alice/private-app", private=True, files=BUGGY)
+    fake.installed = {1: ["alice/private-app"]}
+    s = dataclasses.replace(docker_settings, verification_runs=2, github_client_id="Iv1.test",
+                            github_client_secret="test-secret", secret_key=Fernet.generate_key().decode(),
+                            github_callback_url="http://testserver/api/auth/github/callback")
+    app = create_app(s, github=GitHubClient("Iv1.test", "test-secret", transport=fake.transport()))
+    with TestClient(app) as c:
+        start = c.get("/api/auth/github/start", follow_redirects=False)
+        state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+        c.get(f"/api/auth/github/callback?code=code-alice&state={state}", follow_redirects=False)
+        csrf = c.get("/api/auth/me").json()["csrf"]
+        run = wait(c, c.post("/api/github/runs", json=RUN_GITHUB, headers={"X-CSRF-Token": csrf}).json()["id"], timeout=240)
+    assert run["sandbox"] == "docker" and run["sandbox_isolated"] is True
+    assert run["verdict"]["status"] == "VERIFIED_FOR_TESTED_CASES", run["verdict"]
+    assert run["attempts"][0]["patch"]["diff"] == FIX
+    assert run["source"]["sha"] == "a" * 40
+
+
 def project_with(tests: str, source: str = "def f():\n    return 1\n"):
     files = validate_files([("m.py", source.encode()), ("tests/test_hostile.py", tests.encode())])
     return build_project("hostile", "upload", files)

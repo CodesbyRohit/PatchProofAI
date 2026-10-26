@@ -315,6 +315,34 @@ These live on the API host (`deploy/patchproof.env.example`), never in Vercel or
 - **Rate limiting with the rewrite option.** Behind Vercel's proxy, the backend sees Vercel's addresses, so visitors share one rate-limit budget. That is stricter, not looser. The direct option gives per-visitor limits: the reverse proxy on the API host forwards the real address, and uvicorn trusts it only from localhost.
 - **Not yet observed live:** Vercel's limits for proxied requests (rewrite option). Test an upload near the 4 MB cap if you use it. All API calls are short: runs are started with one request and then polled.
 
+## GitHub repositories
+
+With a GitHub App configured (setup: [deploy/README.md](deploy/README.md), "Optional: GitHub sign-in and repositories"):
+
+1. Sign in with GitHub on `/github`.
+2. Pick a repository: an installed one (private or public), or any public one by `owner/name`.
+3. Pick a branch. PatchProof resolves it to a commit and **pins the run to that SHA**.
+4. Describe the bug, then ask BharatCode for a patch or paste your own diff.
+
+The run goes through the same engine and Docker sandbox as uploads. The result page shows the source commit, which files were not used, and the evidence. If the instance allows it, a verified patch can become a **draft** pull request on a new branch, after you review the exact diff.
+
+- **Repository runs are limited to:** Python with pytest, up to 300 supported files and 4 MB of them, and a 25 MB archive by default. Files PatchProof does not use (binaries, symlinks, Git LFS pointers, other file types) are skipped and listed. Dependencies are not installed.
+- **Security controls are mutation-checked:** `backend/scripts/mutation_check.py` (also a CI step) disables 10 controls one at a time and requires the guarding test to fail. 10 of 10 are caught. The script found one test that did not guard its control (the refresh lock); that test was fixed.
+- **Browser journey:** `e2e/` (harness plus `journey.mjs`) drives sign-in, a verified private-repository run, a draft pull request, another user being refused, and sign-out against the real API and Docker sandbox, with GitHub replaced by the test double.
+- **Tested** with a GitHub test double (`backend/tests/github_fake.py`) that implements the OAuth, REST, archive and Git Data calls PatchProof makes:
+  - 32 API tests;
+  - a run from a private repository verified in the real Docker sandbox;
+  - a browser journey: sign-in, repository, branch, verified run, draft pull request, another user refused, sign-out.
+- **Not yet tested against real GitHub.** That needs a registered GitHub App. In particular, it is not yet confirmed whether a GitHub App user token can read public repositories where the app is not installed. PatchProof falls back to anonymous access for public repositories either way.
+
+## Usage, quotas and analytics
+
+- **Accounting.** Every run gets a usage row: owner, origin, sandbox seconds, model calls and tokens, duration and verdict. It never holds issue text, diffs or file contents.
+- **Quotas** are enforced on the server before a run starts: 30 verifications per UTC month on the free plan (`PATCHPROOF_FREE_MONTHLY_RUNS`). The bundled demo does not count, and the open single-user local mode has no quota. An operator assigns the `member` plan (no monthly limit) with `python -m patchproof.usage set-plan user:<github id> member`. Nothing the browser sends can change a plan or a count.
+- **Billing is not implemented.** There is no payment provider, and `/api/account/usage` reports `billing.enabled: false`. No prices are set.
+- **Events** are first-party and allowlisted: sign-in started or completed, repository selected, run submitted or completed, downloads and pull requests. Each stores a keyed hash of the owner, a few enumerated values and no content, for 90 days. `PATCHPROOF_ANALYTICS=0` turns them off. The browser can send only `landing_viewed` and `repository_selected`, and no frontend code calls the events endpoint yet.
+- **Operator report.** `python -m patchproof.usage report` shows the funnel, completion and verdict counts, median time to result, and returning users. Cost per run and per verified run are computed only after you set `PATCHPROOF_COST_PER_SANDBOX_HOUR` and `PATCHPROOF_COST_PER_1K_MODEL_TOKENS` to your real prices. **Unit economics are unmeasured today.**
+
 ## Security model
 
 Uploaded code and model-generated patches are treated as hostile.
@@ -343,7 +371,7 @@ There has been no professional security audit.
 
 ```bash
 cd backend
-uv run pytest -q          # 192 tests (Docker tests are skipped if Docker is unavailable)
+uv run pytest -q          # 236 tests (Docker tests are skipped if Docker is unavailable)
 uv run ruff check src tests
 
 cd ../frontend
@@ -359,7 +387,7 @@ The frontend tests render real run records captured from the API (`frontend/src/
 
 `.github/workflows/ci.yml` runs on pushes to `main` and `feat/**`, on pull requests, and on manual dispatch. It has a read-only token, actions pinned to commit SHAs, and no deploy step.
 
-- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 6) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
+- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 7) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
 - **Frontend:** `npm ci`, then lint, type-check, tests and the production build.
 
 CI never needs a BharatCode key. Model behaviour, including the HTTP 402 `plan_required` path, is covered by scripted fake clients and captured fixtures, so no provider calls are made. To reproduce the Docker requirement locally:
@@ -383,6 +411,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
 | Benchmark | 29 scripted cases through the real engine and Docker sandbox; 29 of 29 in two complete runs (CI and local), run on every push |
 | CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
+| GitHub integration | Implemented and tested against a GitHub test double and the real Docker sandbox; not yet run against real GitHub (needs a registered GitHub App) |
 | Hosted deployment | Web interface live on Vercel as a UI preview. The API needs a separate Docker host, which is not yet set up. Hosted mode (tokens, CORS, readiness) and its runbook ([deploy/README.md](deploy/README.md)) were validated locally, not yet on a VM. |
 
 ## Limitations

@@ -81,7 +81,7 @@ describe("workspace", () => {
 
     expect(await screen.findAllByRole("article")).not.toHaveLength(0);
     expect(screen.queryByText("Access token required")).not.toBeInTheDocument();
-    expect(calls.filter((c) => authorized(c.init)).map((c) => c.path).sort()).toEqual(["/api/examples", "/api/status"]);
+    expect(calls.filter((c) => authorized(c.init)).map((c) => c.path).sort()).toEqual(["/api/auth/me", "/api/examples", "/api/status"]);
   });
 
   it("reuses the idempotency key when retrying a start whose answer was lost", async () => {

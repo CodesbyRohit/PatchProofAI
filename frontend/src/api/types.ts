@@ -42,8 +42,9 @@ export interface ProjectSummary {
 export interface Project {
   id: string;
   name: string;
-  origin: "example" | "upload" | "inline";
+  origin: "example" | "upload" | "inline" | "github";
   trusted: boolean;
+  source?: RepoSource | null;
   files: ProjectFile[];
   summary: ProjectSummary;
 }
@@ -199,6 +200,8 @@ export interface Run {
   state: RunState;
   project_id: string;
   project_name: string;
+  source?: RepoSource | null;
+  pull_request?: PullRequestRecord | null;
   patch_source: PatchSource;
   issue: string | null;
   sandbox: string | null;
@@ -219,6 +222,7 @@ export interface RunSummary {
   created_at: number;
   state: RunState;
   project_name: string;
+  repository?: string | null;
   patch_source: PatchSource;
   verdict: VerdictStatus | null;
   headline: string | null;
@@ -257,4 +261,101 @@ export interface RunRequest {
   scripted_patch_id?: string;
   user_patch?: string;
   issue?: string;
+}
+
+// -- GitHub -----------------------------------------------------------------------------------------
+
+/** The exact repository revision a run was pinned to. */
+export interface RepoSource {
+  provider: "github";
+  repo_id: number;
+  full_name: string;
+  private: boolean;
+  ref: string | null;
+  sha: string;
+  html_url: string;
+  skipped_count: number;
+  skipped: string[];
+}
+
+export interface PullRequestRecord {
+  state: "creating" | "created" | "failed";
+  branch: string;
+  base: string;
+  patch_sha256: string;
+  url: string | null;
+  number: number | null;
+  error: string | null;
+  created_at: number;
+}
+
+export interface Me {
+  authenticated: boolean;
+  kind: "user" | "token" | "local" | null;
+  login: string | null;
+  csrf: string | null;
+  github: { configured: boolean; install_url: string | null; pull_requests: boolean };
+  token_sign_in: boolean;
+}
+
+export interface Installation {
+  id: number;
+  account: string;
+  repository_selection: string | null;
+}
+
+export interface RepoSummary {
+  id: number;
+  full_name: string;
+  private: boolean;
+  description: string | null;
+  default_branch: string | null;
+  archived: boolean;
+  html_url: string | null;
+  pushed_at: string | null;
+  /** "installed": readable through the PatchProof app; "public": a public repository, read without credentials. */
+  access: "installed" | "public";
+}
+
+export interface RepoPage {
+  repositories: RepoSummary[];
+  total_count: number;
+  page: number;
+  has_more: boolean;
+}
+
+export interface Branch {
+  name: string;
+  sha: string;
+  protected: boolean;
+}
+
+export interface CommitInfo {
+  sha: string;
+  message: string;
+  author: string | null;
+  date: string | null;
+  html_url: string | null;
+}
+
+export interface GitHubRunRequest {
+  repository: string;
+  ref: string | null;
+  sha: string;
+  patch_source: "ai" | "user";
+  user_patch?: string;
+  issue?: string;
+  allow_model_upload: boolean;
+}
+
+export interface PullRequestPreview {
+  enabled: boolean;
+  repository: string;
+  source_sha: string;
+  base: string | null;
+  branch: string;
+  changed_files: string[];
+  diff: string;
+  patch_sha256: string;
+  existing: PullRequestRecord | null;
 }

@@ -799,3 +799,40 @@ ul, ol { margin: 0 0 0.6em; padding-left: 1.2em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* -- GitHub repositories ---------------------------------------------------------------------------- */
+
+.github .page__head .section__lede { flex-basis: 100%; }
+.connect { max-width: 680px; }
+.connect ul { margin: 12px 0 20px; }
+.account { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border: 1px solid var(--line); background: var(--bg-raised); margin-bottom: 28px; }
+.account p { margin: 0; }
+.account__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.github__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 32px 48px; align-items: start; }
+.github__hint { padding-top: 48px; }
+.picker .section__heading, .runform .section__heading { font-size: 1.6rem; margin-bottom: 12px; overflow-wrap: anywhere; }
+.repos { max-height: 420px; overflow-y: auto; margin: 8px 0 12px; border: 1px solid var(--line); }
+.repo { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px;
+  padding: 6px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit;
+  text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.repo:hover { background: var(--bg-raised); }
+.repo--selected { background: var(--blocked-wash); box-shadow: inset 3px 0 0 var(--blocked); }
+.chip--private { color: var(--blocked); background: var(--blocked-wash); }
+.lookup { margin-top: 20px; }
+.runform { display: flex; flex-direction: column; }
+.runform .btn--primary { align-self: flex-start; margin-top: 20px; }
+.commit { min-height: 2.5em; margin-top: 8px; overflow-wrap: anywhere; }
+.mode { border: 0; padding: 0; margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.mode label, .consent { display: flex; gap: 8px; align-items: flex-start; min-height: 24px; }
+.consent { margin-top: 16px; font-size: 0.9rem; }
+.nav__user { align-self: center; color: var(--ink-faint); }
+.prform { display: flex; flex-direction: column; gap: 4px; }
+.prform .diff { max-height: 280px; overflow: auto; }
+
+@media (max-width: 900px) {
+  .github__grid { grid-template-columns: minmax(0, 1fr); }
+  .github__hint { padding-top: 0; }
+}
+/* Native radios and checkboxes are ~13px; make the control itself a 24px target, not only its label. */
+.mode input, .consent input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--ink); }
