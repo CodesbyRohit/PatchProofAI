@@ -29,6 +29,12 @@ class Store:
             )
             self._conn.commit()
 
+    def ping(self) -> None:
+        """Raise unless the database can take a write lock (used by the readiness check)."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            self._conn.execute("ROLLBACK")
+
     def save_project(self, project: Project) -> None:
         with self._lock:
             self._conn.execute(

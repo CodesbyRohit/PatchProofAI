@@ -212,14 +212,15 @@ PatchProof has two parts with different hosting needs:
 
 | Part | Where it can run | Why |
 |---|---|---|
-| Web interface (`frontend/`) | Vercel, or any static host | It is a static Vite build. It calls only same-origin `/api/...` paths and holds no secrets. |
+| Web interface (`frontend/`) | Vercel, or any static host | It is a static Vite build. It calls `/api/...` on its own origin, or on the API address set at build time in `VITE_API_BASE_URL`, and holds no secrets. |
 | API, run store and sandbox (`backend/`) | A Linux host with Docker Engine | Every untrusted test run is a `docker run` against the host's Docker daemon. Runs are long-lived background jobs in the server process, and history is a SQLite file on local disk. Vercel Functions have no Docker daemon and no persistent local disk, so the backend **cannot** run on Vercel. |
 
-On Vercel, `/api/*` is proxied to the backend with a rewrite, so the browser still talks to a single origin. No CORS configuration or API code changes are involved.
+```
+browser ──► Vercel (static frontend)
+   └──── HTTPS + access token ────► API host: Caddy (TLS) ─► uvicorn ─► Docker sandbox per test run
+```
 
-```
-browser ──► Vercel (static frontend) ──/api/* rewrite──► backend host: uvicorn + Docker sandbox
-```
+The browser reaches the API either directly (`VITE_API_BASE_URL` plus a CORS allowlist on the backend) or through a Vercel rewrite of `/api/*`. [deploy/README.md](deploy/README.md) is the step-by-step runbook for the API host, including both options.
 
 ### Frontend on Vercel
 
@@ -235,7 +236,7 @@ browser ──► Vercel (static frontend) ──/api/* rewrite──► backend
 | Build Command | `npm run build` (`tsc --noEmit && vite build`) |
 | Output Directory | `dist` |
 | Node.js Version | 22.x or 24.x (`engines` in `package.json`) |
-| Environment variables | None. Do not add `VITE_*` variables: anything with that prefix is compiled into public JavaScript. |
+| Environment variables | Only `VITE_API_BASE_URL`, when the browser should call the API host directly (see below). It is compiled into public JavaScript: an address, never a secret. Add no other `VITE_*` variables. |
 
 Routing in `vercel.json`:
 
@@ -255,47 +256,64 @@ Expected: 200 with `text/html` for the first two, 200 for the favicon, and 404 f
 
 ### Connecting the backend
 
-When the backend has a public HTTPS address, add this rule as the **first** entry of `rewrites` in `frontend/vercel.json`, replacing the host with yours, then redeploy:
+Once the API host answers on HTTPS ([deploy/README.md](deploy/README.md)), pick one:
 
-```json
-{ "source": "/api/:path*", "destination": "https://<your-backend-host>/api/:path*" }
-```
+- **Direct (recommended).** In Vercel, set `VITE_API_BASE_URL=https://<your-api-host>` for Production and **redeploy** (build-time variables only reach a new build). On the backend, set `PATCHPROOF_CORS_ORIGINS=https://<your-vercel-domain>`: exact origins only, no wildcards. The backend then sees each visitor's address for rate limiting. The build fails on a malformed address, and on a non-HTTPS address other than localhost.
+- **Same-origin rewrite.** Add this rule as the **first** entry of `rewrites` in `frontend/vercel.json` and redeploy. No CORS setting is needed, but visitors share one rate-limit budget, and Vercel's limits for proxied requests apply.
 
-Vercel rewrites cannot read environment variables, so the address lives in this file. It is not a secret. Then verify through the Vercel domain, not the backend host:
+  ```json
+  { "source": "/api/:path*", "destination": "https://<your-api-host>/api/:path*" }
+  ```
 
-```bash
-curl https://<your-vercel-domain>/api/health   # {"ok":true,"version":"0.1.0"}: the proxy reaches the backend
-curl https://<your-vercel-domain>/api/status   # check sandbox.docker_available is true and model.configured matches your key
-```
+Verify through the site, not only the API host: open the workspace, enter an access token, run a bundled example to its verdict, and download its report. `/api/health` (liveness) and `/api/ready` (store writable, Docker sandbox usable) are public probes; every other API path needs a token.
 
-### Backend host requirements
+### Hosted mode and access control
 
-- Linux with Docker Engine. Build the sandbox image there with `./scripts/build-sandbox.sh`.
-- Run **one** uvicorn worker (`uv run uvicorn patchproof.app:create_app --factory --host 127.0.0.1 --port 8000`) behind a TLS reverse proxy. The run queue and rate limits live in the process, and each start marks unfinished runs as interrupted, so extra workers would cancel each other's runs.
-- The user that runs the backend must be able to use Docker, which is root-equivalent on that host. Use a dedicated VM, not a shared machine.
-- Backend environment variables (set on the backend host, never in Vercel or `vercel.json`):
+A reachable backend must run with `PATCHPROOF_HOSTED=1`. It then **refuses to start** unless:
 
-| Variable | Value for a hosted backend |
+- access tokens are configured (`PATCHPROOF_ACCESS_TOKEN_HASHES`);
+- the Docker sandbox is required (`PATCHPROOF_SANDBOX=docker`);
+- the unsandboxed override is off;
+- `PATCHPROOF_DATA_DIR` is set.
+
+It also refuses a second server process on the same data directory.
+
+- **Tokens.** `python -m patchproof.access new` prints a random token for one person and the SHA-256 hash to add to the server's list. The server stores only hashes, and removing one revokes that token.
+  - The browser asks for the token when the API answers 401, and keeps it only in that tab's `sessionStorage`. It is never part of the build.
+  - Every API request, report download included, sends it as `Authorization: Bearer`.
+  - Tokens are shared secrets for a private demo or a small team, not user accounts: every token holder sees every run.
+- **Abuse limits.** These are in addition to the existing per-client rate limit and bounded run queue:
+  - request bodies over 6 MB are refused with 413, whether or not `Content-Length` is sent;
+  - `POST /api/runs` honours an `Idempotency-Key`, so a retried start can't create a second run;
+  - sandbox containers left behind by a crashed server are removed when it restarts.
+
+| Backend variable | Value for a hosted backend |
 |---|---|
-| `BHARATCODE_API_KEY` | Secret. Needed for AI patch generation only. |
-| `PATCHPROOF_SANDBOX` | `docker`, so a missing Docker daemon blocks every run instead of falling back to bundled examples only |
-| `PATCHPROOF_ALLOW_UNSANDBOXED` | Unset or `0`. Never enable this on a reachable server. |
+| `PATCHPROOF_HOSTED` | `1` |
+| `PATCHPROOF_ACCESS_TOKEN_HASHES` | Comma-separated SHA-256 hashes from `python -m patchproof.access new` |
+| `PATCHPROOF_CORS_ORIGINS` | The exact frontend origin(s), for the direct option |
+| `PATCHPROOF_SANDBOX` | `docker` |
+| `PATCHPROOF_ALLOW_UNSANDBOXED` | Unset or `0` |
 | `PATCHPROOF_DATA_DIR` | A persistent directory for the SQLite run history |
+| `BHARATCODE_API_KEY` | Secret. Needed for AI patch generation only. |
+
+These live on the API host (`deploy/patchproof.env.example`), never in Vercel or `vercel.json`. Run exactly one uvicorn worker behind a TLS reverse proxy. The host's Docker access is root-equivalent, so use a dedicated VM. `deploy/` has a systemd unit and a Caddy configuration.
 
 ### What works where
 
 | Feature | Vercel frontend alone | With the backend connected |
 |---|---|---|
 | Pages, navigation, deep links | Yes | Yes |
-| Status, examples, history, runs, uploads, downloads | No: the workspace shows that `/api` is not routed | Yes |
+| Status, examples, history, runs, uploads, downloads | No: the workspace shows that `/api` is not routed | Yes, after entering an access token |
 | Sandboxed verification of uploads and AI patches | No | Yes, only if Docker is available on the backend host. Otherwise these runs are blocked, never run on the host. |
 | AI patch generation | No | Needs a BharatCode plan with API access. Live generation has not been observed yet; see BharatCode integration. |
 
 ### Known deployment limitations
 
-- **The API has no authentication.** Anyone who can open the site, or reach the backend host directly, can upload projects, start sandboxed runs, and use your BharatCode quota, within the rate limit (12 runs per minute by default) and the bounded queue. Restrict access before sharing the URL. Vercel documents a way to make the origin accept only traffic proxied by Vercel: an origin-secret request header, which needs `routes` in `vercel.json` plus a check in the backend. PatchProof does not implement this yet.
-- **Rate limiting behind a proxy.** The backend keys its rate limit on the connecting address. Behind Vercel and a reverse proxy, that is the proxy, so visitors share one budget. That is stricter, not looser. Trusting `X-Forwarded-For` instead is only safe once the backend accepts traffic from Vercel alone.
-- **Not yet observed live:** a 4 MB upload through Vercel's proxy, and Vercel's request limits for proxied requests. Test an upload near the 4 MB cap once the backend is connected. All API calls are short: runs are started with one request and then polled.
+- **No API host exists yet.** The runbook and hosted mode were validated locally on Windows with Docker Desktop: tokens, CORS from a second origin, the Docker sandbox, a crash and restart, and a browser run of a bundled example. They have not been run on a Linux VM.
+- **Access control is shared tokens, not accounts.** Without hosted mode, the API is open to anyone who can reach it (fine on your own machine only), and it logs a warning at startup saying so.
+- **Rate limiting with the rewrite option.** Behind Vercel's proxy, the backend sees Vercel's addresses, so visitors share one rate-limit budget. That is stricter, not looser. The direct option gives per-visitor limits: the reverse proxy on the API host forwards the real address, and uvicorn trusts it only from localhost.
+- **Not yet observed live:** Vercel's limits for proxied requests (rewrite option). Test an upload near the 4 MB cap if you use it. All API calls are short: runs are started with one request and then polled.
 
 ## Security model
 
@@ -307,7 +325,8 @@ Uploaded code and model-generated patches are treated as hostile.
 - **Patch policy.** Tests are the evidence, so patches can't touch them. The capability scan is a guardrail against "fixes" that tamper with the test runner. It is **not** the isolation boundary; the container is.
 - **Prompt injection.** Project files, logs, and the issue text are wrapped as untrusted data, and the system prompt tells the model to ignore any instructions inside them. More importantly, the model has no tools, and its output is only ever parsed as data: it can't execute anything or influence the verdict.
 - **Secrets.** The API key stays on the server and is redacted from logs, errors, and reports. Host paths are removed from recorded commands.
-- **Abuse limits.** Rate limiting per client, a bounded run queue, and bounded model retries.
+- **Abuse limits.** Rate limiting per client, a bounded run queue, bounded model retries, a 6 MB request-body limit, and idempotent run creation.
+- **Access control (hosted mode).** Bearer access tokens, of which the server stores only SHA-256 hashes. Hosted mode will not start without tokens, the Docker sandbox, and a data directory; see [Hosted mode and access control](#hosted-mode-and-access-control).
 
 There has been no professional security audit.
 
@@ -324,7 +343,7 @@ There has been no professional security audit.
 
 ```bash
 cd backend
-uv run pytest -q          # 153 tests (Docker tests are skipped if Docker is unavailable)
+uv run pytest -q          # 192 tests (Docker tests are skipped if Docker is unavailable)
 uv run ruff check src tests
 
 cd ../frontend
@@ -340,7 +359,7 @@ The frontend tests render real run records captured from the API (`frontend/src/
 
 `.github/workflows/ci.yml` runs on pushes to `main` and `feat/**`, on pull requests, and on manual dispatch. It has a read-only token, actions pinned to commit SHAs, and no deploy step.
 
-- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 5) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
+- **Backend** (Ubuntu runner): `uv sync --locked`, Ruff, a build of the sandbox image, and the full pytest suite against the real Docker daemon. `PATCHPROOF_REQUIRE_DOCKER=1` turns a missing sandbox into a test failure instead of a skip, and a final step fails the job unless every test in `tests/test_docker_sandbox.py` (at least 6) actually ran and passed. It then runs the benchmark, which fails the job if any case differs from its expectation, and writes the results table to the job summary.
 - **Frontend:** `npm ci`, then lint, type-check, tests and the production build.
 
 CI never needs a BharatCode key. Model behaviour, including the HTTP 402 `plan_required` path, is covered by scripted fake clients and captured fixtures, so no provider calls are made. To reproduce the Docker requirement locally:
@@ -364,7 +383,7 @@ The suite covers patch parsing and policy, ZIP and path attacks, verdict rules (
 | Web interface | Implemented and tested: workspace, live run view, test ledger, evidence, history, report downloads |
 | Benchmark | 29 scripted cases through the real engine and Docker sandbox; 29 of 29 in two complete runs (CI and local), run on every push |
 | CI workflow | Added (GitHub Actions: backend with the real Docker sandbox, frontend); see Continuous integration |
-| Hosted deployment | Not deployed. The web interface is configured for Vercel (`frontend/vercel.json`); the API and sandbox need a separate Docker host, which is not yet set up. See [Deployment](#deployment). |
+| Hosted deployment | Web interface live on Vercel as a UI preview. The API needs a separate Docker host, which is not yet set up. Hosted mode (tokens, CORS, readiness) and its runbook ([deploy/README.md](deploy/README.md)) were validated locally, not yet on a VM. |
 
 ## Limitations
 

@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
+import { useTokenVersion } from "../api/token";
 import type { Run } from "../api/types";
 
 export interface AsyncState<T> {
@@ -14,17 +15,18 @@ function toApiError(err: unknown): ApiError {
 }
 
 interface Settled<T> {
-  /** Which load this result belongs to; a newer request makes the state "loading" again. */
-  request: number;
+  /** Which load this result belongs to ("reloads:tokenVersion"); a newer one makes the state "loading" again. */
+  request: string;
   key: string;
   data: T | null;
   error: ApiError | null;
 }
 
-/** Load data once per `key` (and again on reload()). */
+/** Load data once per `key` (and again on reload() or when an access token is entered). */
 export function useAsync<T>(key: string, load: () => Promise<T>): AsyncState<T> {
-  const [request, setRequest] = useState(0);
-  const [settled, setSettled] = useState<Settled<T>>({ request: -1, key, data: null, error: null });
+  const [reloads, setRequest] = useState(0);
+  const request = `${reloads}:${useTokenVersion()}`;
+  const [settled, setSettled] = useState<Settled<T>>({ request: "", key, data: null, error: null });
   const loader = useEffectEvent(load);
 
   useEffect(() => {
@@ -55,7 +57,8 @@ export function useRun(id: string): AsyncState<Run> & { polling: boolean } {
   const [data, setData] = useState<Run | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [polling, setPolling] = useState(true);
-  const [request, setRequest] = useState(0);
+  const [reloads, setRequest] = useState(0);
+  const tokenVersion = useTokenVersion();
   const failures = useRef(0);
 
   useEffect(() => {
@@ -77,7 +80,7 @@ export function useRun(id: string): AsyncState<Run> & { polling: boolean } {
         if (cancelled) return;
         const err = toApiError(e);
         failures.current += 1;
-        const retry = err.status !== 404 && failures.current < MAX_POLL_FAILURES;
+        const retry = err.status !== 404 && err.kind !== "auth" && failures.current < MAX_POLL_FAILURES;
         setError(err);
         setPolling(retry);
         if (retry) timer = setTimeout(poll, POLL_INTERVAL_MS * 2);
@@ -88,7 +91,7 @@ export function useRun(id: string): AsyncState<Run> & { polling: boolean } {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [id, request]);
+  }, [id, reloads, tokenVersion]);
 
   return {
     data,

@@ -65,6 +65,50 @@ describe("workspace", () => {
     expect(screen.getAllByText(/\/api is not routed to a PatchProof backend/).length).toBeGreaterThan(0);
   });
 
+  it("asks once for an access token and reloads with it", async () => {
+    const authorized = (init?: RequestInit) => new Headers(init?.headers).get("Authorization") === "Bearer ppa_secret";
+    const denied = () => json({ detail: "This PatchProof instance requires an access token." }, 401);
+    const { calls } = mockFetch({
+      "GET /api/status": (_, init) => (authorized(init) ? json(fx.status()) : denied()),
+      "GET /api/examples": (_, init) => (authorized(init) ? json(fx.examples()) : denied()),
+    });
+    render(<App />);
+
+    expect(await screen.findByText("Access token required")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Access token")).toHaveLength(1); // one form, not one per failed request
+    await userEvent.type(screen.getByLabelText("Access token"), "ppa_secret");
+    await userEvent.click(screen.getByRole("button", { name: "Use token" }));
+
+    expect(await screen.findAllByRole("article")).not.toHaveLength(0);
+    expect(screen.queryByText("Access token required")).not.toBeInTheDocument();
+    expect(calls.filter((c) => authorized(c.init)).map((c) => c.path).sort()).toEqual(["/api/examples", "/api/status"]);
+  });
+
+  it("reuses the idempotency key when retrying a start whose answer was lost", async () => {
+    const run = fx.plausible();
+    let attempt = 0;
+    const { calls } = mockFetch({
+      ...base,
+      "POST /api/runs": () => {
+        attempt += 1;
+        if (attempt === 1) throw new TypeError("Failed to fetch");
+        return json({ ...run, state: "queued" }, 202);
+      },
+      [`GET /api/runs/${run.id}`]: () => json(run),
+    });
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "Run scripted patch: Plausible fix: add one page" });
+    await userEvent.click(button);
+    expect(await screen.findByText(/Cannot reach the PatchProof backend/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Run scripted patch: Plausible fix: add one page" }));
+    expect(await screen.findByRole("img", { name: "Verdict: Failed verification" })).toBeInTheDocument();
+
+    const keys = calls.filter((c) => c.method === "POST").map((c) => new Headers(c.init?.headers).get("Idempotency-Key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it("shows the backend's reason when it refuses to start a run", async () => {
     mockFetch({ ...base, "POST /api/runs": () => json({ detail: "Too many runs. Please wait a minute." }, 429) });
     render(<App />);

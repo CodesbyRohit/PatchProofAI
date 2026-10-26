@@ -1,6 +1,8 @@
+import { joinApi, parseApiBase } from "./base";
+import { getToken } from "./token";
 import type { Example, Project, Run, RunRequest, RunSummary, Status } from "./types";
 
-export type ApiErrorKind = "network" | "timeout" | "http" | "malformed";
+export type ApiErrorKind = "network" | "timeout" | "http" | "auth" | "malformed";
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
@@ -13,6 +15,9 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/** "" means same origin. Validated at build time by vite.config.ts, so it cannot be malformed here. */
+export const API_BASE = parseApiBase(import.meta.env.VITE_API_BASE_URL);
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const RUN_STATES = new Set(["queued", "running", "finished", "error"]);
@@ -37,6 +42,7 @@ export function describeDetail(body: unknown): string | null {
 }
 
 const HTTP_FALLBACK: Record<number, string> = {
+  401: "This PatchProof instance requires an access token.",
   404: "Not found.",
   413: "The upload is too large.",
   422: "The request was rejected.",
@@ -51,43 +57,61 @@ const API_NOT_ROUTED =
   "The PatchProof API is not reachable from this site: /api is not routed to a PatchProof backend. " +
   "If this frontend is hosted on its own (for example on Vercel), configure the /api rewrite to the backend.";
 
+function unreachableMessage(): string {
+  return API_BASE
+    ? `Cannot reach the PatchProof backend at ${API_BASE}. It may be down, or not allow requests from this site (CORS).`
+    : "Cannot reach the PatchProof backend. Is the API server running on port 8000?";
+}
+
+function parseJson(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Fetch an API path with the access token and a timeout. Resolves only for a 2xx response. */
+async function send(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const token = getToken();
+  let res: Response;
+  try {
+    res = await fetch(joinApi(API_BASE, path), {
+      ...init,
+      signal: controller.signal,
+      headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init.headers },
+    });
+  } catch {
+    if (controller.signal.aborted) {
+      throw new ApiError("timeout", `The backend did not answer within ${Math.round(timeoutMs / 1000)} s.`);
+    }
+    throw new ApiError("network", unreachableMessage(), undefined);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) {
+    const body = parseJson(await res.text());
+    // The backend answers every 404 with JSON. A 404 without a JSON body came from whatever serves the page
+    // (for example a static host such as Vercel) because /api is not routed to the PatchProof backend.
+    const unrouted = res.status === 404 && body === undefined && !API_BASE ? API_NOT_ROUTED : null;
+    const message =
+      describeDetail(body) ?? unrouted ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
+    throw new ApiError(res.status === 401 ? "auth" : "http", message, res.status);
+  }
+  return res;
+}
+
 async function request<T>(
   path: string,
   init: RequestInit,
   validate: (body: unknown) => body is T,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res: Response;
-  try {
-    res = await fetch(path, { ...init, signal: controller.signal, headers: { Accept: "application/json", ...init.headers } });
-  } catch {
-    if (controller.signal.aborted) {
-      throw new ApiError("timeout", `The backend did not answer within ${Math.round(timeoutMs / 1000)} s.`);
-    }
-    throw new ApiError("network", "Cannot reach the PatchProof backend. Is the API server running on port 8000?", undefined);
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const text = await res.text();
-  let body: unknown = undefined;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = undefined;
-    }
-  }
-  if (!res.ok) {
-    // The backend answers every 404 with JSON. A 404 without a JSON body came from whatever serves the page
-    // (for example a static host such as Vercel) because /api is not routed to the PatchProof backend.
-    const unrouted = res.status === 404 && body === undefined ? API_NOT_ROUTED : null;
-    const message =
-      describeDetail(body) ?? unrouted ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
-    throw new ApiError("http", message, res.status);
-  }
+  const res = await send(path, init, timeoutMs);
+  const body = parseJson(await res.text());
   if (body === undefined || !validate(body)) {
     throw new ApiError("malformed", "The backend sent a response PatchProof could not read.", res.status);
   }
@@ -135,16 +159,36 @@ export const api = {
   examples: () => request("/api/examples", { method: "GET" }, isExampleList),
   runs: (limit = 30) => request(`/api/runs?limit=${limit}`, { method: "GET" }, isRunSummaryList),
   run: (id: string) => request(`/api/runs/${encodeURIComponent(id)}`, { method: "GET" }, isRun),
-  createRun: (body: RunRequest) =>
+  /** `idempotencyKey`: resend the same key when retrying the same start, and the backend will not start it twice. */
+  createRun: (body: RunRequest, idempotencyKey?: string) =>
     request(
       "/api/runs",
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
+        body: JSON.stringify(body),
+      },
       isRun,
     ),
   uploadProject: (file: File) => {
     const form = new FormData();
     form.append("file", file);
     return request("/api/projects/upload", { method: "POST", body: form }, isProject, 60_000);
+  },
+  /** Fetch a report or diff (with the access token) and hand it to the browser as a file. */
+  download: async (path: string, fallbackName: string) => {
+    const res = await send(path, { method: "GET", headers: { Accept: "*/*" } }, 60_000);
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   },
 };
 

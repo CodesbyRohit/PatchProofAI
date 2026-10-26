@@ -1,4 +1,5 @@
-import { api, downloads } from "../api/client";
+import { useState } from "react";
+import { api, ApiError, downloads } from "../api/client";
 import type { Run } from "../api/types";
 import { AttemptEvidence } from "../components/AttemptEvidence";
 import { ModelErrorNotice } from "../components/ModelErrorNotice";
@@ -83,16 +84,40 @@ function ContinueDemo({ run }: { run: Run }) {
 
 function Downloads({ run }: { run: Run }) {
   const hasDiff = run.attempts.some((a) => a.patch?.diff);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ApiError | null>(null);
+
+  // Fetched rather than linked, so the request carries the access token of a hosted instance.
+  async function save(path: string, name: string) {
+    setBusy(name);
+    setFailure(null);
+    try {
+      await api.download(path, name);
+    } catch (e) {
+      setFailure(e instanceof ApiError ? e : new ApiError("malformed", "The download failed."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const items = [
+    ...(hasDiff ? [{ path: downloads.patch(run.id), name: "patch.diff", what: "exact diff applied" }] : []),
+    { path: downloads.markdown(run.id), name: "report.md", what: "verification report" },
+    { path: downloads.json(run.id), name: "report.json", what: "full record with raw logs" },
+  ];
   return (
     <section className="aside-block">
       <h3 className="aside-title">Reports</h3>
       <ul className="plain downloads">
-        {hasDiff && (
-          <li><a className="download" href={downloads.patch(run.id)} download>patch.diff <span>exact diff applied</span></a></li>
-        )}
-        <li><a className="download" href={downloads.markdown(run.id)} download>report.md <span>verification report</span></a></li>
-        <li><a className="download" href={downloads.json(run.id)} download>report.json <span>full record with raw logs</span></a></li>
+        {items.map((item) => (
+          <li key={item.name}>
+            <button type="button" className="download" disabled={busy !== null} onClick={() => void save(item.path, item.name)}>
+              {item.name} <span>{busy === item.name ? "downloading…" : item.what}</span>
+            </button>
+          </li>
+        ))}
       </ul>
+      {failure && <ErrorNotice error={failure} title="Download failed" />}
     </section>
   );
 }

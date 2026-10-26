@@ -1,0 +1,21 @@
+# TLS reverse proxy in front of the PatchProof API (Caddy obtains and renews the certificate).
+# Set PATCHPROOF_API_HOST (for example in /etc/default/caddy or the caddy service environment) to the DNS name
+# that points at this host. Only ports 80 and 443 should be reachable from the internet; 8000 stays local.
+
+{$PATCHPROOF_API_HOST} {
+	# Matches the API's own limit (MAX_REQUEST_BYTES): oversized bodies are refused before they reach Python.
+	request_body {
+		max_size 6MB
+	}
+
+	reverse_proxy 127.0.0.1:8000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log
+}
