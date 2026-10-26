@@ -144,6 +144,25 @@ def test_model_outage_is_inconclusive(settings, examples):
     run = engine.execute(new_run(project), project)
     assert run.verdict.status == VerdictStatus.inconclusive
     assert "rid-x" in run.attempts[0].error
+    assert run.model_error_kind == "unavailable"
+
+
+def test_plan_required_is_inconclusive_and_labelled(settings, examples):
+    _, project = examples["pagination-off-by-one"]
+    client = FakeClient([BharatCodeError("plan_required", "HTTP 402: Lite or Pro needed", status=402)])
+    engine = Engine(dataclasses.replace(settings, allow_unsandboxed=True), client)
+    run = engine.execute(new_run(project), project)
+    assert run.verdict.status == VerdictStatus.inconclusive
+    assert run.model_error_kind == "plan_required"
+    assert run.baseline and len(run.baseline.targets) == 2  # baseline evidence is still real
+
+
+def test_scripted_run_has_no_model_error(settings, examples):
+    example, project = examples["pagination-off-by-one"]
+    patch = next(p for p in example.patches if p.id == "minimal-fix")
+    run = Engine(settings, None).execute(new_run(project, PatchSource.scripted), project, scripted=patch)
+    assert run.verdict.status == VerdictStatus.verified
+    assert run.model_error_kind is None
 
 
 def test_user_patch_unified_diff(settings, examples):

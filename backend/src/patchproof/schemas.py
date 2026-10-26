@@ -263,6 +263,7 @@ class Run(BaseModel):
     attempts: list[Attempt] = Field(default_factory=list)
     verdict: Verdict | None = None
     error: str | None = None
+    model_error_kind: str | None = None  # BharatCodeError.kind when the model step failed (e.g. plan_required)
     disclosures: list[str] = Field(default_factory=list)
 
 
