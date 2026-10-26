@@ -32,7 +32,12 @@ from ..schemas import (
 )
 from .patching import prepare_candidate
 from .results import classify_health, parse_report
-from .verdict import analyze_baseline, decide, verdict_for_rejected_patch, verdict_for_unusable_baseline
+from .verdict import (
+    analyze_baseline,
+    decide,
+    verdict_for_rejected_patch,
+    verdict_for_unusable_baseline,
+)
 
 log = logging.getLogger("patchproof.engine")
 

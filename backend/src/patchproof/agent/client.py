@@ -20,7 +20,7 @@ from ..redact import redact
 log = logging.getLogger("patchproof.bharatcode")
 
 ErrorKind = Literal[
-    "not_configured", "auth", "forbidden_model", "rate_limited", "unavailable", "timeout",
+    "not_configured", "auth", "plan_required", "forbidden_model", "rate_limited", "unavailable", "timeout",
     "network", "bad_request", "malformed", "truncated", "unknown_model",
 ]
 
@@ -42,6 +42,7 @@ class BharatCodeError(Exception):
         hints = {
             "not_configured": "Set BHARATCODE_API_KEY on the server to enable live diagnosis.",
             "auth": "The BharatCode API key was rejected. Check BHARATCODE_API_KEY.",
+            "plan_required": "The API key is valid, but this BharatCode account's plan does not include API generation.",
             "forbidden_model": "This account cannot use the requested model. Try qwen-3.8-27b.",
             "rate_limited": "BharatCode rate-limited the request. Wait and try again.",
             "unavailable": "BharatCode reported that the model is busy or unavailable. Try again shortly.",
@@ -190,6 +191,8 @@ class BharatCodeClient:
             detail = self._redact(_error_detail(resp))
             if resp.status_code == 401:
                 raise BharatCodeError("auth", f"HTTP 401: {detail}", status=401, request_id=rid, attempts=attempt)
+            if resp.status_code == 402:
+                raise BharatCodeError("plan_required", f"HTTP 402: {detail}", status=402, request_id=rid, attempts=attempt)
             if resp.status_code == 403:
                 raise BharatCodeError("forbidden_model", f"HTTP 403: {detail}", status=403, request_id=rid, attempts=attempt)
             if resp.status_code in _RETRYABLE_STATUS and attempt <= self.max_retries:

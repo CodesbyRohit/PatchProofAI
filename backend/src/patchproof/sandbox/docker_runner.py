@@ -57,7 +57,7 @@ class DockerSandbox(SandboxRunner):
             "--name", container,
             "--network", "none",
             "--read-only",
-            "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",  # noqa: S108 - private tmpfs inside the container
             "--memory", self.memory, "--memory-swap", self.memory,
             "--cpus", self.cpus,
             "--pids-limit", str(self.pids),
