@@ -27,13 +27,28 @@ describe("api client", () => {
   it("explains a non-JSON 404 as /api not being routed to the backend", async () => {
     mockFetch({ "GET /api/status": () => new Response("<html>404: NOT_FOUND</html>", { status: 404 }) });
     const err = await api.status().catch((e: unknown) => e);
-    expect(err).toMatchObject({ kind: "http", status: 404 });
+    expect(err).toMatchObject({ kind: "http", status: 404, notRouted: true });
+    expect((err as ApiError).message).toMatch(/\/api is not routed to a PatchProof backend/);
+  });
+
+  it("explains a JSON host 404 (Vercel answers Accept: application/json) as /api not being routed", async () => {
+    // The exact shape production returned: documented in the audit, not a PatchProof body (no `detail`).
+    mockFetch({
+      "GET /api/status": () =>
+        json({ error: { code: "404", message: "The page could not be found" } }, 404),
+    });
+    const err = await api.status().catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: "http", status: 404, notRouted: true });
     expect((err as ApiError).message).toMatch(/\/api is not routed to a PatchProof backend/);
   });
 
   it("keeps the backend's own message for a JSON 404", async () => {
     mockFetch({ "GET /api/runs/run_gone": () => json({ detail: "Run not found." }, 404) });
-    await expect(api.run("run_gone")).rejects.toMatchObject({ status: 404, message: "Run not found." });
+    await expect(api.run("run_gone")).rejects.toMatchObject({
+      status: 404,
+      message: "Run not found.",
+      notRouted: false,
+    });
   });
 
   it("sends the access token and classifies 401 as an auth error", async () => {

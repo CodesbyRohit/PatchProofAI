@@ -188,8 +188,17 @@ describe("run page", () => {
   it("shows a not-found state for unknown runs", async () => {
     mockFetch({ "GET /api/runs/run_missing": () => json({ detail: "Run not found." }, 404) });
     openRun("run_missing");
-    expect(await screen.findByText("Run not found")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Run not found" })).toBeInTheDocument();
     expect(screen.getByText("Run not found.")).toBeInTheDocument();
+  });
+
+  it("names the failure a deployment problem when /api is not routed", async () => {
+    mockFetch({
+      "GET /api/runs/run_1": () => json({ error: { code: "404", message: "The page could not be found" } }, 404),
+    });
+    openRun("run_1");
+    expect(await screen.findByRole("heading", { level: 1, name: "Backend not connected" })).toBeInTheDocument();
+    expect(screen.getByText(/\/api is not routed to a PatchProof backend/)).toBeInTheDocument();
   });
 
   it("rejects a malformed run response instead of rendering it", async () => {
