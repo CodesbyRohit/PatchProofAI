@@ -1,5 +1,7 @@
 # PatchProof AI
 
+[![CI](https://github.com/CodesbyRohit/PatchProofAI/actions/workflows/ci.yml/badge.svg)](https://github.com/CodesbyRohit/PatchProofAI/actions/workflows/ci.yml)
+
 **Don't just suggest a fix. Prove what works, expose what fails, and show the evidence.**
 
 PatchProof AI is a debugging agent for Python projects built on the [BharatCode](https://bharatcode.ai/build) model API. It doesn't stop at proposing a patch. It runs your tests before and after the change in an isolated sandbox, compares the results test by test, and reports a verdict based only on what actually happened.
