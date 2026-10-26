@@ -23,12 +23,15 @@ export type ApiErrorKind = "network" | "timeout" | "http" | "auth" | "malformed"
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly status?: number;
+  /** True when /api is not routed to a PatchProof backend at all: the page host answered 404 itself. */
+  readonly notRouted: boolean;
 
-  constructor(kind: ApiErrorKind, message: string, status?: number) {
+  constructor(kind: ApiErrorKind, message: string, status?: number, notRouted = false) {
     super(message);
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
+    this.notRouted = notRouted;
   }
 }
 
@@ -124,12 +127,14 @@ async function send(path: string, init: RequestInit, timeoutMs: number): Promise
   }
   if (!res.ok) {
     const body = parseJson(await res.text());
-    // The backend answers every 404 with JSON. A 404 without a JSON body came from whatever serves the page
-    // (for example a static host such as Vercel) because /api is not routed to the PatchProof backend.
-    const unrouted = res.status === 404 && body === undefined && !API_BASE ? API_NOT_ROUTED : null;
-    const message =
-      describeDetail(body) ?? unrouted ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
-    throw new ApiError(res.status === 401 ? "auth" : "http", message, res.status);
+    // The backend answers its own 404s with {"detail": ...}. A 404 without a detail field came from whatever
+    // serves the page because /api is not routed to the PatchProof backend. Hosts differ: some answer with no
+    // body or HTML, and Vercel answers `Accept: application/json` with {"error": {"code": "404", ...}}, so the
+    // body's shape cannot be the test.
+    const detail = describeDetail(body);
+    const unrouted = res.status === 404 && detail === null && !API_BASE ? API_NOT_ROUTED : null;
+    const message = detail ?? unrouted ?? HTTP_FALLBACK[res.status] ?? `Request failed with HTTP ${res.status}.`;
+    throw new ApiError(res.status === 401 ? "auth" : "http", message, res.status, unrouted !== null);
   }
   return res;
 }

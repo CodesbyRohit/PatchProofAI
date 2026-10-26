@@ -152,9 +152,20 @@ export function RunPage({ id }: { id: string }) {
 
   if (!run) {
     if (error) {
+      // A 404 from the backend means this run does not exist. A 404 from the page host means /api is not
+      // routed at all, which is a deployment problem and must not be reported as a missing run.
+      const heading = error.notRouted
+        ? "Backend not connected"
+        : error.status === 404
+          ? "Run not found"
+          : "Could not load this run";
       return (
         <div className="page">
-          <ErrorNotice error={error} onRetry={reload} title={error.status === 404 ? "Run not found" : undefined} />
+          <header className="page__head">
+            <p className="eyebrow mono">Run {id}</p>
+            <h1 className="page__title">{heading}</h1>
+          </header>
+          <ErrorNotice error={error} onRetry={reload} />
           <p><Link to="/history">See run history</Link></p>
         </div>
       );
