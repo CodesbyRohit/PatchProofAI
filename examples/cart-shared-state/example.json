@@ -1,0 +1,36 @@
+{
+  "id": "cart-shared-state",
+  "title": "Carts leak items into each other",
+  "scenario": "State bug with a tempting wrong fix",
+  "description": "A mutable default argument makes every new cart share one list. Dropping the argument fixes the leak but silently breaks carts created with initial items.",
+  "issue": "A new, empty cart already shows items another customer added. It only happens to carts created without arguments.",
+  "recommended_patch": "copy-or-new-list",
+  "patches": [
+    {
+      "id": "ignore-initial-items",
+      "label": "Plausible fix: always start empty",
+      "description": "Removes the shared list, but also drops any initial items a caller passes in.",
+      "expected_verdict": "FAILED_VERIFICATION",
+      "edits": [
+        {
+          "file": "cart.py",
+          "search": "        self.items = items\n",
+          "replace": "        self.items = []\n"
+        }
+      ]
+    },
+    {
+      "id": "copy-or-new-list",
+      "label": "Minimal fix: None default and a copy",
+      "description": "Use None as the default and copy the caller's list.",
+      "expected_verdict": "VERIFIED_FOR_TESTED_CASES",
+      "edits": [
+        {
+          "file": "cart.py",
+          "search": "    def __init__(self, items=[]):\n        self.items = items\n",
+          "replace": "    def __init__(self, items=None):\n        self.items = list(items) if items is not None else []\n"
+        }
+      ]
+    }
+  ]
+}
