@@ -10,7 +10,17 @@ export function StatusStrip({ status, error, loading, onRetry }: {
 }) {
   if (error) return <ErrorNotice error={error} onRetry={onRetry} title="Backend status unavailable" />;
   if (loading && !status) {
-    return <div className="status status--loading" role="status">Checking backend, sandbox and model…</div>;
+    // Same rows as the loaded panel, so the page below does not move when the answer arrives.
+    return (
+      <section className="status status--loading" role="status" aria-label="Checking backend status">
+        {["Sandbox", "Model", "Rules"].map((key) => (
+          <div key={key} className="status__item">
+            <span className="status__key">{key}</span>
+            <span className="status__value">Checking…</span>
+          </div>
+        ))}
+      </section>
+    );
   }
   if (!status) return null;
 
