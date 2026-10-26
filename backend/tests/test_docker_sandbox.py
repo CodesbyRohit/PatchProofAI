@@ -60,6 +60,26 @@ def test_process_limit_holds():
 '''
 
 
+def test_restart_removes_containers_left_by_a_previous_process(docker_settings):
+    import subprocess
+    import uuid
+
+    instance = f"test{uuid.uuid4().hex[:8]}"
+    started = subprocess.run(
+        ["docker", "run", "-d", "--rm", "--network", "none", "--label", f"patchproof.instance={instance}",
+         docker_settings.sandbox_image, "python", "-c", "import time; time.sleep(300)"],
+        capture_output=True, text=True, timeout=60)
+    assert started.returncode == 0, started.stderr
+    try:
+        assert DockerSandbox(docker_settings.sandbox_image, instance="unrelated").remove_orphans() == 0
+        assert DockerSandbox(docker_settings.sandbox_image, instance=instance).remove_orphans() == 1
+        left = subprocess.run(["docker", "ps", "-aq", "--filter", f"label=patchproof.instance={instance}"],
+                              capture_output=True, text=True, timeout=15)
+        assert left.stdout.strip() == ""
+    finally:
+        subprocess.run(["docker", "rm", "-f", started.stdout.strip()], capture_output=True, timeout=60)
+
+
 def project_with(tests: str, source: str = "def f():\n    return 1\n"):
     files = validate_files([("m.py", source.encode()), ("tests/test_hostile.py", tests.encode())])
     return build_project("hostile", "upload", files)

@@ -55,7 +55,7 @@ class Engine:
     ):
         self.settings = settings
         self.client = client
-        self.docker_runner = docker_runner or DockerSandbox(settings.sandbox_image)
+        self.docker_runner = docker_runner or DockerSandbox(settings.sandbox_image, instance=settings.instance_id)
         self.local_runner = local_runner or LocalSubprocessRunner()
         self.docker_check = docker_check or (lambda: docker_status(settings.sandbox_image))
 

@@ -235,7 +235,10 @@ export function Workspace() {
           </p>
         </div>
         {examples.loading && !examples.data && <Loading label="Loading bundled examples…" />}
-        {examples.error && <ErrorNotice error={examples.error} onRetry={examples.reload} title="Could not load examples" />}
+        {/* An access-token prompt is already shown by the status strip above; one form is enough. */}
+        {examples.error && examples.error.kind !== "auth" && (
+          <ErrorNotice error={examples.error} onRetry={examples.reload} title="Could not load examples" />
+        )}
         {examples.data && examples.data.length === 0 && (
           <Notice tone="warn" title="No bundled examples found">
             <p>The backend found no <span className="mono">examples/*/example.json</span>. Check PATCHPROOF_EXAMPLES_DIR.</p>

@@ -1,0 +1,39 @@
+# systemd unit for the PatchProof API on a Linux host with Docker Engine.
+# Install: see deploy/README.md. Paths assume the checkout in /opt/patchproof and data in /var/lib/patchproof.
+
+[Unit]
+Description=PatchProof AI API (FastAPI + Docker sandbox)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=patchproof
+Group=patchproof
+# Docker access is root-equivalent on this host: run PatchProof on a dedicated VM.
+SupplementaryGroups=docker
+WorkingDirectory=/opt/patchproof/backend
+EnvironmentFile=/etc/patchproof/patchproof.env
+# Project workspaces are bind-mounted into sandbox containers by the Docker daemon, which resolves paths in
+# the host's mount namespace. They must live on a real host directory, so PrivateTmp stays off.
+Environment=TMPDIR=/var/lib/patchproof/work
+# Exactly one worker: the run queue and rate limits are in-process (hosted mode refuses a second process).
+# --proxy-headers trusts X-Forwarded-For only from the local reverse proxy, for per-client rate limiting.
+ExecStart=/opt/patchproof/backend/.venv/bin/uvicorn patchproof.app:create_app --factory \
+    --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --timeout-graceful-shutdown 30
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/var/lib/patchproof
+PrivateTmp=no
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
