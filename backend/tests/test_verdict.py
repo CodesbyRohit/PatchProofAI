@@ -1,6 +1,13 @@
 from conftest import make_run
 
-from patchproof.schemas import CandidatePatch, CollectionError, ComparisonCategory, PolicyFinding, RunHealth, VerdictStatus
+from patchproof.schemas import (
+    CandidatePatch,
+    CollectionError,
+    ComparisonCategory,
+    PolicyFinding,
+    RunHealth,
+    VerdictStatus,
+)
 from patchproof.verification.verdict import (
     analyze_baseline,
     decide,

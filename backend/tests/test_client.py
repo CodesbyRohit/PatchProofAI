@@ -58,6 +58,20 @@ def test_auth_failure_not_retried_and_key_redacted():
     assert KEY not in str(info.value) and KEY not in info.value.user_message()
 
 
+def test_payment_required_is_reported_as_plan_issue_and_not_retried():
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(402, json={"error": {"message": "Coding and API use need BharatCode Lite or Pro."}})
+
+    c, sleeps = client_for(handler)
+    with pytest.raises(BharatCodeError) as info:
+        c.chat([{"role": "user", "content": "x"}], model="qwen-3.8-27b")
+    assert info.value.kind == "plan_required" and len(calls) == 1 and not sleeps
+    assert "plan does not include API generation" in info.value.user_message()
+
+
 def test_forbidden_model():
     c, _ = client_for(lambda r: httpx.Response(403, json={"error": "Pro only"}))
     with pytest.raises(BharatCodeError) as info:

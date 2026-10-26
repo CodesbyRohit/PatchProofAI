@@ -1,10 +1,10 @@
 import json
 
 import pytest
+from conftest import make_run
 
 from patchproof.agent.diagnose import DiagnosisParseError, parse_diagnosis
 from patchproof.agent.prompts import build_diagnosis_messages
-from conftest import make_run
 
 GOOD = {
     "summary": "Off by one",
